@@ -334,14 +334,31 @@
   // =====================================================================
   // 8. 정보 표시
   // =====================================================================
+
+  // 가드레일 순수 헬퍼
+  function barHeight_mm(N, d_mm) { return (N - 1) * d_mm; }
+  function isTouching(a_mm, d_mm) { return 2 * a_mm >= d_mm; }
+  function transmissionWarn(lam_cm, d_mm) { return lam_cm * 10 < 5 * d_mm; }
+
   function updateInfo() {
     const lam_m = state.lam_cm / 100;
     const f_GHz = C_LIGHT / lam_m / 1e9;
+    const dlam = (state.d_mm / 1000) / lam_m;        // d/λ
+    const lam_d = lam_m / (state.d_mm / 1000);        // λ/d
+    const H = barHeight_mm(state.N, state.d_mm);
+    const touch = isTouching(state.a_mm, state.d_mm);
+    const warn = transmissionWarn(state.lam_cm, state.d_mm);
+
+    const badges =
+      (touch ? `<span class="badge ok">닿음(솔리드)</span>` : `<span class="badge">틈 있음</span>`) +
+      (warn ? ` <span class="badge warn">투과 영향 구간 (λ &lt; 5d)</span>` : ``);
+
     document.getElementById("infoBox").innerHTML =
-      `도선 N = <b>${state.N}</b><br>` +
+      `도선 N = <b>${state.N}</b> · 막대 높이 H = <b>${H.toFixed(1)} mm</b><br>` +
       `파장 λ = <b>${state.lam_cm.toFixed(1)} cm</b> (f ≈ <b>${f_GHz.toFixed(2)} GHz</b>)<br>` +
       `간격 d = <b>${state.d_mm.toFixed(1)} mm</b> · 굵기 a = <b>${state.a_mm.toFixed(2)} mm</b><br>` +
-      `스크린 거리 L = <b>${state.L_mm.toFixed(0)} mm</b>`;
+      `<b>λ/d = ${lam_d.toFixed(2)}</b> (d/λ = ${dlam.toFixed(3)}) · L = <b>${state.L_mm.toFixed(0)} mm</b><br>` +
+      badges;
   }
 
   function syncLabels() {
@@ -411,6 +428,12 @@
     console.log("[검증] Y0(1)=", besselY0(1).toFixed(6), "(기대 0.088257)");
     console.log("[검증] J0(5)=", besselJ0(5).toFixed(6), "(기대 -0.177597)");
     console.log("[검증] Y0(0.01)=", besselY0(0.01).toFixed(4), "(유한, 발산 아님)");
+    console.assert(barHeight_mm(5, 4) === 16, "barHeight 5,4 → 16");
+    console.assert(isTouching(2, 3) === true,  "isTouching 2,3 (2a=4≥3)");
+    console.assert(isTouching(1, 3) === false, "isTouching 1,3 (2a=2<3)");
+    console.assert(transmissionWarn(2, 5) === true,  "warn λ=20mm<25mm");
+    console.assert(transmissionWarn(3, 5) === false, "no-warn λ=30mm≥25mm");
+    console.log("[검증] 가드레일 헬퍼 단언 통과");
   }
 
   // =====================================================================

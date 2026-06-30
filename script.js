@@ -416,6 +416,9 @@
     const touch = isTouching(state.a_mm, state.d_mm);
     const warn = transmissionWarn(state.lam_cm, state.d_mm);
 
+    const Icenter = (solver.wiresY && solver.wiresY.length)
+      ? screenIntensity(state.L_mm / 1000, 0) : 1;
+
     const badges =
       (touch ? `<span class="badge ok">닿음(솔리드)</span>` : `<span class="badge">틈 있음</span>`) +
       (warn ? ` <span class="badge warn">투과 영향 구간 (λ &lt; 5d)</span>` : ``);
@@ -425,6 +428,7 @@
       `파장 λ = <b>${state.lam_cm.toFixed(1)} cm</b> (f ≈ <b>${f_GHz.toFixed(2)} GHz</b>)<br>` +
       `간격 d = <b>${state.d_mm.toFixed(1)} mm</b> · 굵기 a = <b>${state.a_mm.toFixed(2)} mm</b><br>` +
       `<b>λ/d = ${lam_d.toFixed(2)}</b> (d/λ = ${dlam.toFixed(3)}) · L = <b>${state.L_mm.toFixed(0)} mm</b><br>` +
+      `그림자 중심 세기 <b>I₀ = ${Icenter.toFixed(3)}</b> (입사=1.000)<br>` +
       badges;
   }
 

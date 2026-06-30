@@ -7,27 +7,16 @@
   const C_LIGHT = 2.99792458e8;
   const TWO_PI = Math.PI * 2;
   const VMAX = 1.5;           // 색 포화 기준 [V/m]
-  const A_RATIO_MAX = 0.30;   // 반지름 상한 = 간격의 30%
-  const N_MAX_INF = 80;       // 무한 배열 탭 표시 도선 수 상한
-  const D_MIN_INF = 3;        // 무한 배열 탭 d 최솟값 [mm] (HTML min 속성과 일치)
-  const FLOQUET_M  = 50;      // Floquet 모드 수 (−M … +M)
-  const FLOQUET_YW = 0.090;   // 무한 배열 탭 반높이 고정값 [m] = 90 mm
+  const N_MAX = 120;          // 도선 수 상한(성능)
 
   // =====================================================================
   // 1. 상태
-  //    shared  : 두 탭 공유 (λ, A, 편광, 애니메이션)
-  //    tabState: 탭별 독립 (d, a, N)
-  //    activeTab: 0=무한 배열(기본), 1=유한 배열
   // =====================================================================
-  const shared = {
-    lam_cm: 12.2, amp: 1.0, polParallel: true,
+  const state = {
+    N: 40, d_mm: 4, a_mm: 1.0,
+    lam_cm: 12.2, amp: 1.0, L_mm: 80,
     playing: true, phase: 0,
   };
-  const tabState = [
-    { d_mm: 10, a_mm: 0.5, N: 0 },   // Tab 0: 무한 배열 (N 자동)
-    { d_mm: 10, a_mm: 0.5, N: 30 },  // Tab 1: 유한 배열
-  ];
-  let activeTab = 0;
 
   // =====================================================================
   // 2. 베셀/한켈 함수  (Abramowitz & Stegun 9.4 다항 근사)
@@ -113,227 +102,95 @@
   }
 
   // =====================================================================
-  // 3.5. Floquet 방법: 무한 주기 배열 (Tab 0)
-  //   κ_m = sqrt(k²−α_m²), α_m = 2πm/d, Im(κ_m) ≥ 0
-  // =====================================================================
-  function floquetZ(k, a_m, d_m) {
-    // Z = (2i/d) · Σ_{m=−M}^{M} (1/κ_m) · exp(i·κ_m·a)
-    const tpd = TWO_PI / d_m;
-    let sRe = 0, sIm = 0;
-    for (let m = -FLOQUET_M; m <= FLOQUET_M; m++) {
-      const al = m * tpd;
-      const kk = k * k - al * al;
-      let krRe, krIm;
-      if (kk >= 0) { krRe = Math.sqrt(kk); krIm = 0; }
-      else          { krRe = 0; krIm = Math.sqrt(-kk); }
-      const mag2 = krRe*krRe + krIm*krIm;
-      if (mag2 < 1e-30) continue;
-      const ikRe = krRe / mag2, ikIm = -krIm / mag2;   // 1/κ_m
-      const ex  = Math.exp(-krIm * a_m);
-      const eRe = ex * Math.cos(krRe * a_m);            // exp(i·κ·a)
-      const eIm = ex * Math.sin(krRe * a_m);
-      sRe += ikRe*eRe - ikIm*eIm;
-      sIm += ikRe*eIm + ikIm*eRe;
-    }
-    const f = 2 / d_m;                                  // ×(2i/d)
-    return { re: -f * sIm, im: f * sRe };
-  }
-
-  function floquetField(wx, wy, k, d_m) {
-    // (2i/d) · Σ_m (1/κ_m) · exp(i·α_m·wy) · exp(i·κ_m·|wx|)
-    // c 는 호출 측에서 곱함
-    const tpd = TWO_PI / d_m;
-    const absx = Math.abs(wx);
-    let sRe = 0, sIm = 0;
-    for (let m = -FLOQUET_M; m <= FLOQUET_M; m++) {
-      const al = m * tpd;
-      const kk = k * k - al * al;
-      let krRe, krIm;
-      if (kk >= 0) { krRe = Math.sqrt(kk); krIm = 0; }
-      else          { krRe = 0; krIm = Math.sqrt(-kk); }
-      const mag2 = krRe*krRe + krIm*krIm;
-      if (mag2 < 1e-30) continue;
-      const ikRe = krRe / mag2, ikIm = -krIm / mag2;
-      const cyRe = Math.cos(al * wy), cyIm = Math.sin(al * wy);
-      const ex2  = Math.exp(-krIm * absx);
-      const cxRe = ex2 * Math.cos(krRe * absx);
-      const cxIm = ex2 * Math.sin(krRe * absx);
-      const p1Re = ikRe*cyRe - ikIm*cyIm;
-      const p1Im = ikRe*cyIm + ikIm*cyRe;
-      sRe += p1Re*cxRe - p1Im*cxIm;
-      sIm += p1Re*cxIm + p1Im*cxRe;
-    }
-    const f = 2 / d_m;
-    return { re: -f * sIm, im: f * sRe };
-  }
-
-  // =====================================================================
   // 4. 솔버 출력 (recompute 결과 저장)
   // =====================================================================
   const solver = {
     k: 0, aEff_m: 0, wiresY: [],
     cRe: null, cIm: null,
-    gridW: 0, gridH: 0, Xw: 0, Yw: 0,
+    gridW: 0, gridH: 0, xMin: 0, xMax: 0, Yw: 0,
     incRe: null, incIm: null, scRe: null, scIm: null,
-    tau: 1,
-    isFloquet: false, fCRe: 0, fCIm: 0,   // Tab 0 Floquet 계수
   };
 
   // =====================================================================
   // 5. 물리 계산
   // =====================================================================
+  // 한 점에서 입사·산란장 평가 (그리드/스크린 공용)
+  function evalFields(wx, wy, k, wiresY, cRe, cIm, aEff_m) {
+    const incRe = Math.cos(k * wx), incIm = Math.sin(k * wx);
+    let sr = 0, si = 0;
+    for (let n = 0; n < wiresY.length; n++) {
+      const dy = wy - wiresY[n];
+      let r = Math.sqrt(wx * wx + dy * dy);
+      if (r < aEff_m) r = aEff_m;
+      const x = k * r;
+      const jr = besselJ0(x), yi = besselY0(x);
+      sr += cRe[n] * jr - cIm[n] * yi;
+      si += cRe[n] * yi + cIm[n] * jr;
+    }
+    return { incRe, incIm, scRe: sr, scIm: si };
+  }
+
   function recompute() {
     if (!layout.bandW || !layout.bandH) return;
 
-    const ts = tabState[activeTab];
-    const lam_m = shared.lam_cm / 100;
-    const d_m = ts.d_mm / 1000;
-    const aEff_m = Math.min(ts.a_mm, A_RATIO_MAX * ts.d_mm) / 1000;
+    const lam_m = state.lam_cm / 100;
+    const d_m = state.d_mm / 1000;
+    const aEff_m = state.a_mm / 1000;          // 상한 제거: 닿음 허용
     const k = TWO_PI / lam_m;
+    const L_m = state.L_mm / 1000;
+    const N = Math.min(N_MAX, Math.max(2, state.N));
+
+    // x-윈도우: 왼쪽 입사/반사 영역 + 스크린까지. L 키우면 전체 줌아웃.
+    const xMax = L_m * 1.15;
+    const xMin = -Math.max(L_m * 0.4, 0.02);
+    let span = xMax - xMin;
+    if (span < 0.05) span = 0.05;              // 최소 폭
     const aspect = layout.bandH / layout.bandW;
+    const Yw = (span * aspect) / 2;            // y 반높이를 x-폭에서 유도
 
-    let N, Xw, Yw;
-
-    if (activeTab === 0) {
-      // 무한 배열: 90mm 고정 반높이 · 보이는 도선 수 = Yw/d (자동)
-      Yw = FLOQUET_YW;
-      Xw = Yw / aspect;
-      N = Math.min(N_MAX_INF, Math.max(4, Math.floor(2 * Yw / d_m)));
-      ts.N = N;
-      const el = document.getElementById("autoNVal");
-      if (el) el.textContent = N;
-    } else {
-      // 유한 배열: N과 무관하게 FLOQUET_YW로 고정. 화면 밖 도선은 그리기만 생략.
-      N = ts.N;
-      Yw = FLOQUET_YW;
-      Xw = Yw / aspect;
-    }
-
-    // 도선 위치 (y=0 중심) — Tab 0는 표시 전용, Tab 1은 MoM 입력
+    // 도선 위치 (y=0 중심)
     const wiresY = new Float64Array(N);
     for (let n = 0; n < N; n++) wiresY[n] = (n - (N - 1) / 2) * d_m;
+
+    // 유한 배열 MoM: Z_mn=H0(k·|y_m-y_n|), 자기항 H0(k·a), b=-1
+    const ZM = new Float64Array(N * N * 2);
+    const b = new Float64Array(N * 2);
+    const Hself = hankel0(k * aEff_m);
+    for (let m = 0; m < N; m++) {
+      b[m * 2] = -1; b[m * 2 + 1] = 0;
+      for (let n = 0; n < N; n++) {
+        const h = (m === n) ? Hself : hankel0(k * Math.abs(wiresY[m] - wiresY[n]));
+        ZM[(m * N + n) * 2] = h.re;
+        ZM[(m * N + n) * 2 + 1] = h.im;
+      }
+    }
+    const c = solveComplex(N, ZM, b);
+    const cRe = new Float64Array(N), cIm = new Float64Array(N);
+    for (let n = 0; n < N; n++) { cRe[n] = c[n * 2]; cIm[n] = c[n * 2 + 1]; }
 
     const gridW = layout.gridW;
     const gridH = Math.max(40, Math.round(gridW * aspect));
     const incRe = new Float32Array(gridW * gridH);
     const incIm = new Float32Array(gridW * gridH);
-    const scRe  = new Float32Array(gridW * gridH);
-    const scIm  = new Float32Array(gridW * gridH);
-
-    let cRe, cIm, fCRe = 0, fCIm = 0;
-
-    if (activeTab === 0) {
-      // ── Floquet 정확해: c = −1/Z, Z = (2i/d)·Σ(1/κ_m)·exp(iκ_m·a) ──
-      const Zf = floquetZ(k, aEff_m, d_m);
-      const Zden = Zf.re*Zf.re + Zf.im*Zf.im;
-      fCRe = -Zf.re / Zden;
-      fCIm =  Zf.im / Zden;
-
-      for (let gj = 0; gj < gridH; gj++) {
-        const wy = Yw - (gj + 0.5) / gridH * 2 * Yw;
-        for (let gi = 0; gi < gridW; gi++) {
-          const wx = -Xw + (gi + 0.5) / gridW * 2 * Xw;
-          const idx = gj * gridW + gi;
-          const ph = k * wx;
-          incRe[idx] = Math.cos(ph);
-          incIm[idx] = Math.sin(ph);
-          const fs = floquetField(wx, wy, k, d_m);
-          scRe[idx] = fCRe*fs.re - fCIm*fs.im;
-          scIm[idx] = fCRe*fs.im + fCIm*fs.re;
-        }
-      }
-      cRe = new Float64Array(1); cIm = new Float64Array(1);
-    } else {
-      // ── 유한 배열 MoM: Z_mn=H0(k·ρ_mn), b_m=−1 ──
-      const ZM = new Float64Array(N * N * 2);
-      const b  = new Float64Array(N * 2);
-      const Hself = hankel0(k * aEff_m);
-      for (let m = 0; m < N; m++) {
-        b[m * 2] = -1; b[m * 2 + 1] = 0;
-        for (let n = 0; n < N; n++) {
-          const h = (m === n) ? Hself : hankel0(k * Math.abs(wiresY[m] - wiresY[n]));
-          ZM[(m * N + n) * 2] = h.re;
-          ZM[(m * N + n) * 2 + 1] = h.im;
-        }
-      }
-      const c = solveComplex(N, ZM, b);
-      cRe = new Float64Array(N); cIm = new Float64Array(N);
-      for (let n = 0; n < N; n++) { cRe[n] = c[n * 2]; cIm[n] = c[n * 2 + 1]; }
-
-      for (let gj = 0; gj < gridH; gj++) {
-        const wy = Yw - (gj + 0.5) / gridH * 2 * Yw;
-        for (let gi = 0; gi < gridW; gi++) {
-          const wx = -Xw + (gi + 0.5) / gridW * 2 * Xw;
-          const idx = gj * gridW + gi;
-          const ph = k * wx;
-          incRe[idx] = Math.cos(ph);
-          incIm[idx] = Math.sin(ph);
-          let sr = 0, si = 0;
-          for (let n = 0; n < N; n++) {
-            const dy = wy - wiresY[n];
-            let r = Math.sqrt(wx * wx + dy * dy);
-            if (r < aEff_m) r = aEff_m;
-            const x = k * r;
-            const jr = besselJ0(x), yi = besselY0(x);
-            sr += cRe[n] * jr - cIm[n] * yi;
-            si += cRe[n] * yi + cIm[n] * jr;
-          }
-          scRe[idx] = sr; scIm[idx] = si;
-        }
+    const scRe = new Float32Array(gridW * gridH);
+    const scIm = new Float32Array(gridW * gridH);
+    for (let gj = 0; gj < gridH; gj++) {
+      const wy = Yw - (gj + 0.5) / gridH * 2 * Yw;
+      for (let gi = 0; gi < gridW; gi++) {
+        const wx = xMin + (gi + 0.5) / gridW * span;
+        const idx = gj * gridW + gi;
+        const f = evalFields(wx, wy, k, wiresY, cRe, cIm, aEff_m);
+        incRe[idx] = f.incRe; incIm[idx] = f.incIm;
+        scRe[idx] = f.scRe; scIm[idx] = f.scIm;
       }
     }
 
     Object.assign(solver, {
       k, aEff_m, wiresY, cRe, cIm,
-      gridW, gridH, Xw, Yw, incRe, incIm, scRe, scIm,
-      isFloquet: activeTab === 0, fCRe, fCIm,
+      gridW, gridH, xMin, xMax: xMin + span, Yw, incRe, incIm, scRe, scIm,
     });
 
-    // E⊥wire 약화 계수 τ (정성적)
-    const ka = k * aEff_m;
-    solver.tau = shared.polParallel ? 1 : Math.min(0.35, 2.0 * ka * ka);
-
-    computeTransmittance();
     updateInfo();
-  }
-
-  // 전력 투과율 T = |E_total|² / |E_inc|²
-  let transmittance = 0;
-  function computeTransmittance() {
-    if (solver.isFloquet) {
-      // Floquet 정확해: T = |1 + 2ic/(kd)|²
-      // 1 + 2ic/(kd) = (1 − 2·fCIm/kd) + i·(2·fCRe/kd)
-      const kd = solver.k * (tabState[0].d_mm / 1000);
-      const tRe = 1 - 2 * solver.fCIm / kd;
-      const tIm =     2 * solver.fCRe / kd;
-      transmittance = tRe*tRe + tIm*tIm;
-      return;
-    }
-    // 유한 배열: N·Yw 무관 고정 창으로 중앙부 투과 측정
-    const k = solver.k;
-    const wiresY = solver.wiresY;
-    const N = wiresY.length;
-    const xMeas = 0.030;              // 측정 x 거리 30 mm 고정
-    const yHalf = FLOQUET_YW * 0.25; // 측정창 반높이 22.5 mm 고정
-    const samples = 41;
-    let sum = 0;
-    for (let s = 0; s < samples; s++) {
-      const wy = -yHalf + (s / (samples - 1)) * 2 * yHalf;
-      let tr = Math.cos(k * xMeas), ti = Math.sin(k * xMeas);
-      let sr = 0, si = 0;
-      for (let n = 0; n < N; n++) {
-        const dy = wy - wiresY[n];
-        let r = Math.sqrt(xMeas * xMeas + dy * dy);
-        if (r < solver.aEff_m) r = solver.aEff_m;
-        const x = k * r;
-        const jr = besselJ0(x), yi = besselY0(x);
-        sr += solver.cRe[n] * jr - solver.cIm[n] * yi;
-        si += solver.cRe[n] * yi + solver.cIm[n] * jr;
-      }
-      tr += solver.tau * sr; ti += solver.tau * si;
-      sum += tr * tr + ti * ti;
-    }
-    transmittance = sum / samples;
   }
 
   // =====================================================================
@@ -389,8 +246,8 @@
     ctx.clearRect(0, 0, layout.cssW, layout.cssH);
     const gw = solver.gridW, gh = solver.gridH;
     if (!gw || !gh) return;
-    const A = shared.amp, tau = solver.tau;
-    const cosP = Math.cos(shared.phase), sinP = Math.sin(shared.phase);
+    const A = state.amp;
+    const cosP = Math.cos(state.phase), sinP = Math.sin(state.phase);
 
     if (offscreen.width !== gw || offscreen.height !== gh) {
       offscreen.width = gw; offscreen.height = gh;
@@ -402,8 +259,8 @@
       for (let p = 0; p < gw * gh; p++) {
         let fr, fi;
         if (band === 0) { fr = solver.incRe[p]; fi = solver.incIm[p]; }
-        else if (band === 1) { fr = solver.scRe[p] * tau; fi = solver.scIm[p] * tau; }
-        else { fr = solver.incRe[p] + solver.scRe[p] * tau; fi = solver.incIm[p] + solver.scIm[p] * tau; }
+        else if (band === 1) { fr = solver.scRe[p]; fi = solver.scIm[p]; }
+        else { fr = solver.incRe[p] + solver.scRe[p]; fi = solver.incIm[p] + solver.scIm[p]; }
         const val = (fr * cosP + fi * sinP) * A;
         colorFor(val / VMAX, data, p * 4);
       }
@@ -416,7 +273,7 @@
   }
 
   function worldToBand(wx, wy, by) {
-    const sx = layout.bandX + (wx + solver.Xw) / (2 * solver.Xw) * layout.bandW;
+    const sx = layout.bandX + (wx - solver.xMin) / (solver.xMax - solver.xMin) * layout.bandW;
     const sy = by + (solver.Yw - wy) / (2 * solver.Yw) * layout.bandH;
     return { x: sx, y: sy };
   }
@@ -426,12 +283,11 @@
     ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
     ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
 
-    const ts = tabState[activeTab];
-    const sPx = layout.bandW / (2 * solver.Xw);
-    const dPx = ts.d_mm / 1000 * sPx;
-    const aRatio = solver.aEff_m / (ts.d_mm / 1000);
-    // 반지름: a/d 비율×5배 과장 표시 (물리 계산은 aEff_m으로 정확히 수행)
-    const rPx = Math.min(dPx * 0.48, Math.max(2.5, dPx * aRatio * 5));
+    const sPx = layout.bandW / (solver.xMax - solver.xMin);
+    const dPx = (state.d_mm / 1000) * sPx;
+    const aPx = (solver.aEff_m) * sPx;
+    const rPx = Math.min(dPx * 0.5, Math.max(1.5, aPx));   // 닿으면 dPx의 절반(맞닿음)
+    const N = state.N;
 
     // 중심선 (도선 배열 위치)
     const top = worldToBand(0, solver.Yw, by), bot = worldToBand(0, -solver.Yw, by);
@@ -442,7 +298,6 @@
     ctx.restore();
 
     // 도선
-    const N = ts.N;
     for (let n = 0; n < N; n++) {
       const p = worldToBand(0, solver.wiresY[n], by);
       if (p.y < by - 4 || p.y > by + bh + 4) continue;
@@ -463,7 +318,6 @@
       ctx.beginPath(); ctx.moveTo(ax + 34, ay); ctx.lineTo(ax + 27, ay - 4); ctx.lineTo(ax + 27, ay + 4); ctx.closePath(); ctx.fill();
       ctx.font = "11px sans-serif"; ctx.textAlign = "left"; ctx.fillStyle = "#444";
       ctx.fillText("입사파 진행 →", ax, ay - 8);
-      drawPolIndicator(bx + 14, by + 36);
     }
 
     // 밴드 제목
@@ -473,78 +327,30 @@
 
     if (band === 2) {
       ctx.font = "11px sans-serif"; ctx.fillStyle = "#5a5a62";
-      const caption = activeTab === 0
-        ? "오른쪽=차폐영역 · 왼쪽=반사 간섭무늬 · 도선은 위아래로 무한히 이어짐 (Floquet 정확해)"
-        : "오른쪽=차폐영역 · 왼쪽=반사 간섭무늬(차폐 강할수록 정재파에 근접)";
-      ctx.fillText(caption, bx + 120, by + bh - 10);
+      ctx.fillText("오른쪽=막대 뒤(그림자/회절) · 왼쪽=반사 간섭 · 점선=스크린 위치", bx + 120, by + bh - 10);
     }
-  }
-
-  function drawPolIndicator(x, y) {
-    ctx.save();
-    ctx.textAlign = "left"; ctx.font = "11px sans-serif";
-    if (shared.polParallel) {
-      ctx.strokeStyle = "#7a1fa0"; ctx.fillStyle = "#7a1fa0"; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(x + 6, y + 4, 6, 0, TWO_PI); ctx.stroke();
-      ctx.beginPath(); ctx.arc(x + 6, y + 4, 1.6, 0, TWO_PI); ctx.fill();
-      ctx.fillText("E ∥ 도선 (화면 안↔밖)", x + 18, y + 8);
-    } else {
-      ctx.strokeStyle = "#1a8a4a"; ctx.fillStyle = "#1a8a4a"; ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(x + 6, y - 3); ctx.lineTo(x + 6, y + 11); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x + 6, y - 4); ctx.lineTo(x + 3, y); ctx.lineTo(x + 9, y); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(x + 6, y + 12); ctx.lineTo(x + 3, y + 8); ctx.lineTo(x + 9, y + 8); ctx.closePath(); ctx.fill();
-      ctx.fillText("E ⊥ 도선 (화면 위↔아래)", x + 18, y + 8);
-    }
-    ctx.restore();
   }
 
   // =====================================================================
   // 8. 정보 표시
   // =====================================================================
   function updateInfo() {
-    const ts = tabState[activeTab];
-    const lam_m = shared.lam_cm / 100;
-    const d_m = ts.d_mm / 1000;
-    const dlam = d_m / lam_m;
+    const lam_m = state.lam_cm / 100;
     const f_GHz = C_LIGHT / lam_m / 1e9;
-    const aEff = Math.min(ts.a_mm, A_RATIO_MAX * ts.d_mm);
-    const modeStr = activeTab === 0 ? "무한 배열" : "유한 배열";
     document.getElementById("infoBox").innerHTML =
-      `[${modeStr}] &nbsp;N = <b>${ts.N}${activeTab === 0 ? " (자동)" : ""}</b><br>` +
-      `파장 λ = <b>${shared.lam_cm.toFixed(1)} cm</b> &nbsp;(f ≈ <b>${f_GHz.toFixed(2)} GHz</b>)<br>` +
-      `간격 d = <b>${ts.d_mm.toFixed(1)} mm</b> · 반지름 a = <b>${aEff.toFixed(2)} mm</b><br>` +
-      `편광 <b>${shared.polParallel ? "E∥wire" : "E⊥wire"}</b> &nbsp;· &nbsp;<b>d/λ = ${dlam.toFixed(3)}</b><br>` +
-      `전력 투과율 <b>T = ${(transmittance * 100).toFixed(1)} %</b>`;
+      `도선 N = <b>${state.N}</b><br>` +
+      `파장 λ = <b>${state.lam_cm.toFixed(1)} cm</b> (f ≈ <b>${f_GHz.toFixed(2)} GHz</b>)<br>` +
+      `간격 d = <b>${state.d_mm.toFixed(1)} mm</b> · 굵기 a = <b>${state.a_mm.toFixed(2)} mm</b><br>` +
+      `스크린 거리 L = <b>${state.L_mm.toFixed(0)} mm</b>`;
   }
 
   function syncLabels() {
-    // Tab 0 슬라이더 라벨
-    const ts0 = tabState[0];
-    const aMax0 = A_RATIO_MAX * ts0.d_mm;
-    const aEff0 = Math.min(ts0.a_mm, aMax0);
-    document.getElementById("a0Val").textContent =
-      ts0.a_mm.toFixed(2) + " mm" + (ts0.a_mm > aMax0 + 1e-9 ? " →" + aEff0.toFixed(2) : "");
-    document.getElementById("d0Val").textContent = ts0.d_mm.toFixed(1) + " mm";
-    document.getElementById("a0Slider").max = Math.max(0.05, aMax0).toFixed(2);
-
-    // Tab 1 슬라이더 라벨
-    const ts1 = tabState[1];
-    const aMax1 = A_RATIO_MAX * ts1.d_mm;
-    const aEff1 = Math.min(ts1.a_mm, aMax1);
-    document.getElementById("a1Val").textContent =
-      ts1.a_mm.toFixed(2) + " mm" + (ts1.a_mm > aMax1 + 1e-9 ? " →" + aEff1.toFixed(2) : "");
-    document.getElementById("d1Val").textContent = ts1.d_mm.toFixed(1) + " mm";
-    document.getElementById("n1Val").textContent = ts1.N + " 개";
-    document.getElementById("a1Slider").max = Math.max(0.05, aMax1).toFixed(2);
-
-    // 공유 슬라이더 라벨
-    document.getElementById("lamVal").textContent = shared.lam_cm.toFixed(1) + " cm";
-    document.getElementById("ampVal").textContent = shared.amp.toFixed(2) + " V/m";
-
-    // 편광 범례
-    document.getElementById("polLegend").innerHTML = shared.polParallel
-      ? "전기장이 도선과 <b>평행</b> → 전류가 잘 유도되어 <b>차폐</b>."
-      : "전기장이 도선과 <b>수직</b> → 도선이 거의 투명, <b>통과</b> (정성적 표현).";
+    document.getElementById("nVal").textContent = state.N + " 개";
+    document.getElementById("dVal").textContent = state.d_mm.toFixed(1) + " mm";
+    document.getElementById("aVal").textContent = state.a_mm.toFixed(2) + " mm";
+    document.getElementById("lamVal").textContent = state.lam_cm.toFixed(1) + " cm";
+    document.getElementById("ampVal").textContent = state.amp.toFixed(2) + " V/m";
+    document.getElementById("lVal").textContent = state.L_mm.toFixed(0) + " mm";
   }
 
   // =====================================================================
@@ -556,77 +362,42 @@
     recomputeTimer = setTimeout(() => { recompute(); drawFrame(); }, 60);
   }
 
-  // 탭별 슬라이더: 해당 탭 상태 업데이트, 현재 탭일 때만 재계산
-  function bindTabSlider(id, tabIdx, key, parse) {
+  function bindSlider(id, key, parse, redrawOnly) {
     document.getElementById(id).addEventListener("input", function () {
-      tabState[tabIdx][key] = parse(this.value);
+      state[key] = parse(this.value);
       syncLabels();
-      if (activeTab === tabIdx) scheduleRecompute();
+      if (redrawOnly) drawFrame(); else scheduleRecompute();
     });
   }
-  bindTabSlider("a0Slider", 0, "a_mm", parseFloat);
-  bindTabSlider("d0Slider", 0, "d_mm", parseFloat);
-  bindTabSlider("a1Slider", 1, "a_mm", parseFloat);
-  bindTabSlider("d1Slider", 1, "d_mm", parseFloat);
-  bindTabSlider("n1Slider", 1, "N", v => parseInt(v, 10));
-
-  // 공유 슬라이더
-  document.getElementById("lamSlider").addEventListener("input", function () {
-    shared.lam_cm = parseFloat(this.value);
-    syncLabels(); scheduleRecompute();
-  });
-  document.getElementById("ampSlider").addEventListener("input", function () {
-    shared.amp = parseFloat(this.value);
-    syncLabels(); drawFrame();
-  });
-
-  // 탭 전환
-  document.querySelectorAll(".tabBtn").forEach(btn => {
-    btn.addEventListener("click", function () {
-      const newTab = parseInt(this.dataset.tab);
-      if (newTab === activeTab) return;
-      activeTab = newTab;
-      document.querySelectorAll(".tabBtn").forEach((b, i) => b.classList.toggle("active", i === newTab));
-      document.querySelectorAll(".tabPane").forEach((p, i) => p.classList.toggle("active", i === newTab));
-      recompute(); drawFrame();
-    });
-  });
-
-  // 편광 토글
-  document.getElementById("polPar").addEventListener("click", () => setPol(true));
-  document.getElementById("polPerp").addEventListener("click", () => setPol(false));
-  function setPol(par) {
-    shared.polParallel = par;
-    document.getElementById("polPar").classList.toggle("active", par);
-    document.getElementById("polPerp").classList.toggle("active", !par);
-    syncLabels();
-    const ka = solver.k * solver.aEff_m;
-    solver.tau = par ? 1 : Math.min(0.35, 2.0 * ka * ka);
-    computeTransmittance(); updateInfo(); drawFrame();
-  }
+  bindSlider("nSlider", "N", v => parseInt(v, 10));
+  bindSlider("dSlider", "d_mm", parseFloat);
+  bindSlider("aSlider", "a_mm", parseFloat);
+  bindSlider("lamSlider", "lam_cm", parseFloat);
+  bindSlider("lSlider", "L_mm", parseFloat);
+  bindSlider("ampSlider", "amp", parseFloat, true);
 
   // 재생/일시정지
   const playBtn = document.getElementById("playBtn");
   const phaseWrap = document.getElementById("phaseWrap");
   const phaseSlider = document.getElementById("phaseSlider");
   playBtn.addEventListener("click", () => {
-    shared.playing = !shared.playing;
-    playBtn.textContent = shared.playing ? "‖ 일시정지" : "▶ 재생";
-    phaseWrap.classList.toggle("on", !shared.playing);
-    document.getElementById("phaseHint").style.display = shared.playing ? "none" : "block";
+    state.playing = !state.playing;
+    playBtn.textContent = state.playing ? "‖ 일시정지" : "▶ 재생";
+    phaseWrap.classList.toggle("on", !state.playing);
+    document.getElementById("phaseHint").style.display = state.playing ? "none" : "block";
   });
   phaseSlider.addEventListener("input", () => {
-    shared.phase = parseFloat(phaseSlider.value) * Math.PI / 180;
+    state.phase = parseFloat(phaseSlider.value) * Math.PI / 180;
     document.getElementById("phaseVal").textContent = phaseSlider.value + "°";
-    if (!shared.playing) drawFrame();
+    if (!state.playing) drawFrame();
   });
 
   // =====================================================================
   // 10. 애니메이션 루프
   // =====================================================================
   function loop() {
-    if (shared.playing) {
-      shared.phase = (shared.phase + 0.06) % TWO_PI;
+    if (state.playing) {
+      state.phase = (state.phase + 0.06) % TWO_PI;
       drawFrame();
     }
     requestAnimationFrame(loop);
@@ -640,16 +411,6 @@
     console.log("[검증] Y0(1)=", besselY0(1).toFixed(6), "(기대 0.088257)");
     console.log("[검증] J0(5)=", besselJ0(5).toFixed(6), "(기대 -0.177597)");
     console.log("[검증] Y0(0.01)=", besselY0(0.01).toFixed(4), "(유한, 발산 아님)");
-
-    const savedLam = shared.lam_cm, savedPol = shared.polParallel, savedTab = activeTab;
-    activeTab = 0; shared.polParallel = true;
-    shared.lam_cm = 2;  recompute(); const tShort = transmittance;
-    shared.lam_cm = 25; recompute(); const tLong = transmittance;
-    console.log(
-      `[검증] T(λ=2cm)=${(tShort*100).toFixed(1)}%  T(λ=25cm)=${(tLong*100).toFixed(1)}%` +
-      `  → 긴 파장이 더 작아야:`, tLong < tShort ? "OK" : "확인필요"
-    );
-    shared.lam_cm = savedLam; shared.polParallel = savedPol; activeTab = savedTab;
   }
 
   // =====================================================================
@@ -658,8 +419,8 @@
   syncLabels();
   window.addEventListener("resize", resize);
   resize();       // layout 확정 + recompute + drawFrame
-  selfCheck();    // 베셀·차폐 경향 검증 (내부에서 recompute 호출)
-  recompute();    // selfCheck 후 원래 상태로 복원
+  selfCheck();    // 베셀 검증
+  recompute();    // 상태 재계산
   drawFrame();
   requestAnimationFrame(loop);
 })();

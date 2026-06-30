@@ -130,6 +130,13 @@
     return { incRe, incIm, scRe: sr, scIm: si };
   }
 
+  // 스크린(거리 L_m, 높이 wy)에서의 세기 |E_total|² (입사 세기=1 단위)
+  function screenIntensity(L_m, wy) {
+    const f = evalFields(L_m, wy, solver.k, solver.wiresY, solver.cRe, solver.cIm, solver.aEff_m);
+    const tr = f.incRe + f.scRe, ti = f.incIm + f.scIm;
+    return tr * tr + ti * ti;
+  }
+
   function recompute() {
     if (!layout.bandW || !layout.bandH) return;
 
@@ -204,7 +211,7 @@
   const layout = {
     cssW: 0, cssH: 0, marginL: 12, marginR: 12, marginT: 10, marginB: 10,
     gap: 14, bandX: 0, bandW: 0, bandH: 0, bandY: [0, 0, 0],
-    gridW: 360,
+    gridW: 360, plotW: 96,
   };
 
   const BAND_TITLES = ["① 입사파", "② 산란파", "③ 중첩 (입사 + 산란)"];
@@ -218,7 +225,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     layout.bandX = layout.marginL;
-    layout.bandW = layout.cssW - layout.marginL - layout.marginR;
+    layout.bandW = layout.cssW - layout.marginL - layout.marginR - layout.plotW - layout.gap;
     const totalH = layout.cssH - layout.marginT - layout.marginB - 2 * layout.gap;
     layout.bandH = totalH / 3;
     for (let i = 0; i < 3; i++)
@@ -270,6 +277,51 @@
       ctx.drawImage(offscreen, layout.bandX, by, layout.bandW, layout.bandH);
       drawOverlay(band, by);
     }
+    drawIntensityPlot();
+  }
+
+  function drawIntensityPlot() {
+    if (!solver.wiresY || !solver.wiresY.length) return;
+    const by = layout.bandY[2], bh = layout.bandH;
+    const px = layout.bandX + layout.bandW + layout.gap;
+    const pw = layout.plotW;
+    const L_m = state.L_mm / 1000;
+
+    // 세로로 샘플링 (위→아래), 최대값으로 가로 스케일
+    const M = 120;
+    const Iy = new Float64Array(M);
+    let Imax = 1e-6;
+    for (let s = 0; s < M; s++) {
+      const wy = solver.Yw - (s + 0.5) / M * 2 * solver.Yw;
+      const I = screenIntensity(L_m, wy);
+      Iy[s] = I; if (I > Imax) Imax = I;
+    }
+    const scale = Math.max(2, Math.ceil(Imax));   // 가로 0..scale
+
+    // 축 박스 + 입사 세기=1 기준선
+    ctx.save();
+    ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, by + 0.5, pw - 1, bh - 1);
+    const x1 = px + (1 / scale) * pw;
+    ctx.strokeStyle = "#d9d9df"; ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(x1, by); ctx.lineTo(x1, by + bh); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // I(y) 곡선
+    ctx.strokeStyle = "#c0392b"; ctx.lineWidth = 1.5; ctx.beginPath();
+    for (let s = 0; s < M; s++) {
+      const sy = by + (s + 0.5) / M * bh;
+      const sx = px + Math.min(1, Iy[s] / scale) * pw;
+      if (s === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+
+    // 라벨
+    ctx.fillStyle = "#5a5a62"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("스크린 세기 I(y)", px + pw / 2, by + bh - 4);
+    ctx.textAlign = "left"; ctx.fillText("0", px + 2, by + bh - 14);
+    ctx.textAlign = "right"; ctx.fillText(scale.toFixed(0), px + pw - 2, by + bh - 14);
+    ctx.restore();
   }
 
   function worldToBand(wx, wy, by) {
@@ -449,6 +501,19 @@
     console.assert(transmissionWarn(2, 5) === true,  "warn λ=20mm<25mm");
     console.assert(transmissionWarn(3, 5) === false, "no-warn λ=30mm≥25mm");
     console.log("[검증] 가드레일 헬퍼 단언 통과");
+
+    // 장애물 없을 때(도선 0개) 스크린 세기 ≈ 1
+    {
+      const k0 = TWO_PI / (state.lam_cm / 100);
+      const f = evalFields(0.08, 0.0, k0, new Float64Array(0), new Float64Array(0), new Float64Array(0), 1e-6);
+      const I0 = (f.incRe + f.scRe) ** 2 + (f.incIm + f.scIm) ** 2;
+      console.assert(Math.abs(I0 - 1) < 1e-9, "무장애물 스크린 세기=1");
+      console.log("[검증] 무장애물 세기 I0=", I0.toFixed(6));
+    }
+    recompute();
+    console.assert(Math.abs(screenIntensity(state.L_mm / 1000, 0) - 1) < 0.2 || state.N >= 2,
+      "screenIntensity 정의됨");
+    console.log("[검증] screenIntensity(중심)=", screenIntensity(state.L_mm / 1000, 0).toFixed(3));
   }
 
   // =====================================================================

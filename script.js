@@ -297,6 +297,21 @@
     ctx.beginPath(); ctx.moveTo(top.x, top.y); ctx.lineTo(bot.x, bot.y); ctx.stroke();
     ctx.restore();
 
+    // 스크린 위치 (거리 L, 세로 점선)
+    const Lx = state.L_mm / 1000;
+    if (Lx >= solver.xMin && Lx <= solver.xMax) {
+      const st = worldToBand(Lx, solver.Yw, by), sb = worldToBand(Lx, -solver.Yw, by);
+      ctx.save();
+      ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(st.x, st.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+      ctx.restore();
+      if (band === 0) {
+        ctx.save(); ctx.font = "10px sans-serif"; ctx.fillStyle = "#c0392b";
+        ctx.textAlign = "center"; ctx.fillText("스크린", (st.x + sb.x) / 2, by + 12);
+        ctx.restore();
+      }
+    }
+
     // 도선
     for (let n = 0; n < N; n++) {
       const p = worldToBand(0, solver.wiresY[n], by);

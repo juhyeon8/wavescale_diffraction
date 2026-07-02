@@ -20,8 +20,8 @@
     playing: true, phase: 0,
   };
 
-  // 뷰 전용 상태(물리 state와 분리) — 줌 배율만 갖는다
-  const view = { zoomFactor: 1 };
+  // 뷰 전용 상태(물리 state와 분리) — 줌 배율 + 등방 판정 결과(§13)
+  const view = { zoomFactor: 1, isotropic: true, scaleRatio: 1 };
 
   // =====================================================================
   // 2. 베셀/한켈 함수  (Abramowitz & Stegun 9.4 다항 근사)
@@ -226,32 +226,34 @@
   // =====================================================================
   // 6.1 뷰 지오메트리 — base(줌 100% 기준) · gridWorld(물리 계산 범위) · camera(현재 뷰)
   // =====================================================================
-  const L_MAX_M = parseFloat(document.getElementById("lSlider").max) / 1000;  // DOM에서 읽음(하드코딩 금지)
   const base = { xMin: 0, xMax: 0, Yw: 0 };
   const gridWorld = { xMin: 0, xMax: 0, Yw: 0 };
   const camera = { xMin: 0, xMax: 0, Yw: 0 };
 
-  // 세로 여유 마진(고정, λ와 무관) — §11에서 λ 비교를 위해 λ 연동을 걷어내며 도입.
-  // 6cm 부근에서 잘 보이던 비율(2λ=120mm)에 근접하게 잡은 값. 너무 빡빡/헐거우면
-  // 이 상수만 조정.
-  const Y_MARGIN_M = 0.10;
+  // [등방 판정] 1:1 등방 기준 세로 반높이 vs 막대 가시성 하한, 큰 쪽 채택.
+  // 순수 함수 — selfCheck()에서 단언.
+  function chooseBaseYw(span, aspect, H_m) {
+    const isoYw = (span * aspect) / 2;
+    const floorYw = 1.15 * (H_m / 2 + 0.05);
+    const baseYw = Math.max(isoYw, floorYw);
+    return { baseYw, isotropic: baseYw === isoYw, scaleRatio: (2 * baseYw) / (aspect * span) };
+  }
 
   // base: 줌 100%일 때 뷰.
-  // 가로(x)는 L_MAX(스크린 거리 슬라이더 최댓값)까지 항상 다 보이는 고정 기준선 —
-  // 전파 방향이라 N/d/a/λ가 바뀌어도 안 바뀐다(리사이즈 때만 변함, §1).
-  // 세로(y)는 막대 높이 H에는 연동하되(막대 가시성 유지), λ에는 연동하지 않는다(§11).
-  // λ가 바뀔 때 세로 범위까지 같이 늘어나면 회절이 실제로 더 퍼지는 효과를 뷰가
-  // 상쇄해버려 "λ가 길수록 회절이 더 퍼진다"는 비교가 불가능해지기 때문 — 세로
-  // 여유는 고정 마진(Y_MARGIN_M)으로 대체한다. λ가 아주 커서 회절이 이 프레임을
-  // 넘치면 줌아웃으로 대응(그 자체가 회절 증가의 증거).
-  //   baseYw = 1.5 × (H/2 + Y_MARGIN_M)
-  // N/d가 바뀌면 recompute()가 매번 이 함수를 다시 불러 최신 state로 재계산한다.
+  // 가로(x)는 "현재" 스크린 거리 L 기준(전파 방향) — L이 바뀌면 recompute가 다시 계산한다.
+  // 세로(y)는 1:1 등방(가로와 같은 미터/픽셀 축척)을 우선하되, 막대(H) 전체+여백이
+  // 항상 보이도록 하한을 둔다(§13). 하한이 이기면 등방이 깨지고, ②밴드에 축척비를 표기한다.
   function computeBaseAndGrid() {
-    const baseXmax = L_MAX_M * 1.15;
-    const baseXmin = -Math.max(L_MAX_M * 0.4, 0.02);
+    const L_m = state.L_mm / 1000;
+    const baseXmax = L_m * 1.15;
+    const baseXmin = -Math.max(L_m * 0.4, 0.02);
+    const span = baseXmax - baseXmin;
+    const aspect = layout.bandH / layout.bandW;
 
     const H_m = (state.N - 1) * (state.d_mm / 1000);
-    const baseYw = 1.5 * (H_m / 2 + Y_MARGIN_M);
+    const { baseYw, isotropic, scaleRatio } = chooseBaseYw(span, aspect, H_m);
+    view.isotropic = isotropic;
+    view.scaleRatio = scaleRatio;
 
     base.xMin = baseXmin; base.xMax = baseXmax; base.Yw = baseYw;
 
@@ -464,9 +466,9 @@
     ctx.fillStyle = "#10193a";
     ctx.fillText(BAND_TITLES[band], bx + 10, by + bh - 10);
 
-    if (band === 1) {
+    if (band === 1 && !view.isotropic) {
       ctx.font = "11px sans-serif"; ctx.fillStyle = "#5a5a62";
-      ctx.fillText("실제로는 원형 파문 — 가로·세로 축척이 달라 타원으로 보임", bx + 120, by + bh - 10);
+      ctx.fillText(`세로:가로 축척 ×${view.scaleRatio.toFixed(1)} (막대 높이 우선표시)`, bx + 120, by + bh - 10);
     }
     if (band === 2) {
       ctx.font = "11px sans-serif"; ctx.fillStyle = "#5a5a62";
@@ -537,8 +539,8 @@
   bindSlider("dSlider", "d_mm", parseFloat);
   bindSlider("aSlider", "a_mm", parseFloat);
   bindSlider("lamSlider", "lam_cm", parseFloat);
-  // L은 뷰 범위·물리장 계산 어디에도 관여하지 않는다(§2.1) → recompute 불필요, drawFrame만.
-  bindSlider("lSlider", "L_mm", parseFloat, true);
+  // L이 이제 가로 범위(base.xMax/xMin)의 기준이므로 recompute 필요(§13.2).
+  bindSlider("lSlider", "L_mm", parseFloat);
   bindSlider("ampSlider", "amp", parseFloat, true);
 
   // 줌 (버튼 + 마우스 휠) — 항상 x=0,y=0 중심, view.zoomFactor 하나를 공유한다.
@@ -594,6 +596,12 @@
     console.log("[검증] Y0(1)=", besselY0(1).toFixed(6), "(기대 0.088257)");
     console.log("[검증] J0(5)=", besselJ0(5).toFixed(6), "(기대 -0.177597)");
     console.log("[검증] Y0(0.01)=", besselY0(0.01).toFixed(4), "(유한, 발산 아님)");
+    {
+      const r1 = chooseBaseYw(0.1, 1.0, 0.02);
+      console.assert(!r1.isotropic, "chooseBaseYw: H 하한이 이겨야 함(0.069>0.05)");
+      const r2 = chooseBaseYw(1.0, 1.0, 0.001);
+      console.assert(r2.isotropic, "chooseBaseYw: 등방 기준이 이겨야 함(0.5>0.058)");
+    }
     console.assert(barHeight_mm(5, 4) === 16, "barHeight 5,4 → 16");
     console.assert(isTouching(2, 3) === true,  "isTouching 2,3 (2a=4≥3)");
     console.assert(isTouching(1, 3) === false, "isTouching 1,3 (2a=2<3)");

@@ -412,3 +412,213 @@ if (band === 1) {
 - 물리 함수(`besselJ0/Y0`, `hankel0`, `solveComplex`, `evalFields`,
   `screenIntensity`, MoM 구성)는 미변경 — `computeBaseAndGrid()`의 세로
   범위 계산과 `drawOverlay()`의 ② 밴드 라벨 추가만 수정됨.
+
+---
+
+## 13. 뷰 등방화 + 가로 범위를 현재 L 기준으로 (2026-07-02, 관찰 조건 정리 작업 최우선)
+
+### 13.1 배경
+
+§12.3에서 "등방화는 별도 작업으로 보류"라고 남겨둔 항목을 여기서 처리한다.
+동시에 가로 범위 기준을 `L_MAX`(슬라이더 최댓값, 항상 300mm 고정)에서
+**현재 스크린 거리 L**로 바꾼다 — 관심 영역(막대~스크린)이 화면 왼쪽에
+몰리는 문제를 없애기 위함.
+
+### 13.2 공식 확정
+
+```js
+const L_m = state.L_mm / 1000;
+const baseXmax = L_m * 1.15;
+const baseXmin = -Math.max(L_m * 0.4, 0.02);        // 최소 -20mm 보장
+const span = baseXmax - baseXmin;
+const aspect = layout.bandH / layout.bandW;          // 밴드 픽셀 종횡비
+
+const H_m = (state.N - 1) * (state.d_mm / 1000);
+const isoYw   = (span * aspect) / 2;                 // 1:1 등방 기준 세로 반높이
+const floorYw = 1.15 * (H_m / 2 + 0.05);              // 막대 가시성 하한(마진 50mm)
+const baseYw  = Math.max(isoYw, floorYw);
+
+view.isotropic  = (baseYw === isoYw);
+view.scaleRatio = (2 * baseYw) / (aspect * span);     // 1=등방, >1=세로가 더 넓게 커버(압축)
+```
+
+`L` 슬라이더는 이제 `redrawOnly`를 해제하고 `scheduleRecompute()`를 타도록
+바꾼다(디바운스 150ms 유지) — 가로 범위가 L에 종속되므로 `gridWorld`도
+L이 바뀔 때마다 재계산해야 하기 때문. `L_MAX_M` 상수와 `lSlider.max`를
+읽던 코드는 더 이상 쓰이지 않으므로 제거한다.
+
+②밴드의 "실제로는 원형 파문 — 타원으로 보임" 고정 라벨은 제거하고,
+`!view.isotropic`일 때만 축척비를 표기하는 라벨로 교체한다:
+
+```js
+if (band === 1 && !view.isotropic) {
+  ctx.fillText(`세로:가로 축척 ×${view.scaleRatio.toFixed(1)} (막대 높이 우선표시)`, ...);
+}
+```
+
+### 13.3 프로토타입 검증 — 완료 기준 시나리오에서 하한이 항상 이김 (사용자 확인 완료)
+
+`.preview/task1/` 사본에 위 공식을 적용하고 Playwright(1600×900 뷰포트)로
+확인한 결과, 이번 작업의 권장 기본값 시나리오(H=150mm, L=100mm)에서:
+
+```
+isoYw=19.5mm  floorYw=143.8mm  등방=false  축척비=×7.35
+recompute() 1413~1526 ms (N=76, gridW=900, gridH=227)
+```
+
+**등방 기준(19.5mm)보다 막대 가시성 하한(143.8mm)이 7.35배 커서, 이 하한이
+항상 이긴다.** 스크린샷으로도 ②산란파 밴드의 파문이 좌우로 뭉개진 채
+그려짐을 확인했다(원형 아님). 원인: 3칸을 세로로 쌓는 레이아웃 특성상
+밴드 하나의 픽셀 종횡비가 원래 작아(이 창 크기에서 ≈0.27), 등방을
+만족하려면 세로 범위가 아주 좁아야 하는데 그러면 H=150mm 막대가 화면에
+다 안 들어간다 — **H가 L에 비해 어느 정도 크면 "막대 다 보이기"와 "원형으로
+보이기"가 이 레이아웃에서 구조적으로 동시에 만족되기 어렵다.**
+
+**사용자 확인 (2026-07-02): 명세대로 진행 — 하한(막대 가시성) 우선, 등방이
+깨지면 축척비 배지로 고지.** 즉 H가 작거나 L이 큰 조합(등방 기준이 하한을
+넘는 경우)에서는 파문이 원형으로 보이고, H가 L에 비해 큰 조합(권장 기본값
+포함)에서는 축척비 배지가 뜨며 파문이 눌려 보이는 것을 **의도된 동작으로
+받아들인다.** 밴드 레이아웃 자체를 바꾸는 것(더 정사각형에 가까운 밴드)은
+이번 작업 범위 밖이며 별도 작업으로 남긴다.
+
+### 13.4 성능 — 회귀 없음, 단 L도 이제 recompute 지연을 가짐
+
+`gridW=900` 고정이므로 §9.1의 결론(재계산 비용은 격자 픽셀 수·N에만
+의존, 월드 면적과 무관)이 그대로 적용된다 — N=76에서 ~1.4~1.5초는 §9.2의
+N=120 측정치(~2초)와 일관된 범위. 다만 **L 슬라이더가 이제 recompute를
+타므로(§13.2), L을 드래그해 놓을 때도 λ/N/d와 동일한 디바운스 지연이
+생긴다** — 기존에는 즉시 반응했던 것과 달라진 점으로, 사용자도 인지하고
+있는 의도된 트레이드오프.
+
+---
+
+## 14. λ/H 핵심 지표 + Fresnel 수 + 막대 높이 치수선 (2026-07-02)
+
+### 14.1 λ/H 구간 배지
+
+```js
+function lamHRatio(lam_cm, N, d_mm) {
+  const H_mm = barHeight_mm(N, d_mm);
+  return (lam_cm * 10) / H_mm;                     // λ[mm] / H[mm]
+}
+```
+구간: `<0.3` "그림자 뚜렷(빛처럼 직진)" · `0.3~1 미만` "회절 전이 구간" ·
+`≥1` "장애물을 감싸 돎(라디오파처럼)".
+
+### 14.2 Fresnel 수 배지
+
+```js
+function fresnelNumber(H_mm, L_mm, lam_cm) {
+  const lam_mm = lam_cm * 10;
+  return Math.pow(H_mm / 2, 2) / (L_mm * lam_mm);
+}
+```
+구간: `>3` "기하 그림자 구간" · `0.5~3` "전이" · `<0.5` "그림자 메워짐".
+두 함수 모두 순수 함수 — `selfCheck()`에서 대표값으로 단언한다.
+
+### 14.3 막대 높이(H) 치수선
+
+①입사파 밴드에서만 그린다. 막대 x=0 픽셀 컬럼(`worldToBand(0,·)`)에서
+왼쪽으로 20px 오프셋(밴드 왼쪽 경계보다 안쪽이면 `bx+6`로 clamp)에
+세로 양방향 화살표 + "H = xx mm" 라벨을 그린다. `worldToBand`가 이미
+`camera` 범위를 참조하므로 줌·리사이즈 시 자동으로 따라온다. 기존
+"입사파 진행 →" 화살표(좌상단, `ax=bx+16,ay=by+16`)와 겹치지 않도록
+치수선은 막대 근처(화면 중앙부)에 그린다.
+
+---
+
+## 15. 솔리드 모드 토글 (2026-07-02)
+
+### 15.1 상태 분리 — 물리 함수는 미변경
+
+기존 `recompute()`는 `state.N/d_mm/a_mm`만 읽으므로, 모드 전환은 이
+세 값을 어떻게 채우는지의 문제로 국한한다. 모드별 원본 값을 별도로
+보존해 왕복 전환 시 값이 사라지지 않게 한다.
+
+```js
+state.mode = 'solid';       // 'wire' | 'solid' (기본값: solid, §17)
+state.wireN = 40; state.wireD_mm = 4; state.wireA_mm = 1.0;   // 도선 모드 슬라이더 원본
+state.H_mm = 150;                                              // 솔리드 모드 슬라이더(20~300mm)
+state.solidApproxWarn = false;
+
+function computeSolidWireLayout(H_mm) {
+  const nNeeded = Math.ceil(H_mm / 1) + 1;      // d ≤ 1mm(=λ_min/10) 목표
+  const N = Math.min(N_MAX, Math.max(2, nNeeded));
+  const d_mm = H_mm / (N - 1);
+  const a_mm = d_mm / 2;                         // 맞닿음
+  return { N, d_mm, a_mm, approxWarn: d_mm > 1 };
+}
+
+function syncActivePhysics() {
+  if (state.mode === 'solid') {
+    const r = computeSolidWireLayout(state.H_mm);
+    state.N = r.N; state.d_mm = r.d_mm; state.a_mm = r.a_mm;
+    state.solidApproxWarn = r.approxWarn;
+  } else {
+    state.N = state.wireN; state.d_mm = state.wireD_mm; state.a_mm = state.wireA_mm;
+    state.solidApproxWarn = false;
+  }
+}
+```
+
+`computeSolidWireLayout`는 순수 함수 — `selfCheck()`에서 단언
+(예: H=150 → d≤1mm, H=300(N_MAX 상한 근접) → `approxWarn===true`).
+
+### 15.2 UI — 기존 미사용 `.segbtns`/`.tabPane` 스타일 재활용
+
+Floquet/편광 제거 때 "무해하니 남겨둔다"고 결정했던(§Task1 원 계획서
+Step 9) `.segbtns`, `.tabPane` 스타일을 모드 토글·컨트롤 패널 전환에
+재사용한다 — 새 스타일 추가 최소화. N/d/a 슬라이더 행은 `#wireControls`,
+H 슬라이더 행은 `#solidControls`로 감싸고 `state.mode`에 따라
+`display`를 토글한다.
+
+### 15.3 정보 배지 — 모드별 분기
+
+도선 모드: 기존 λ/d·닿음/틈·투과 경고 배지 그대로 유지(§5.1, §Task2).
+솔리드 모드: "솔리드(자동)" 배지 + `solidApproxWarn`일 때만 "근사
+(격자 상한, d>1mm)" 경고 배지. λ/H·Fresnel 배지(§14)는 두 모드 공통.
+
+---
+
+## 16. 그림자 정량 지표 — 그림자 폭 (2026-07-02)
+
+```js
+function findShadowRegion(Iy, threshold) {     // 순수 함수, selfCheck 단언 대상
+  const M = Iy.length;
+  const c = Math.floor(M / 2);
+  if (Iy[c] >= threshold) return null;
+  let lo = c, hi = c;
+  while (lo > 0 && Iy[lo - 1] < threshold) lo--;
+  while (hi < M - 1 && Iy[hi + 1] < threshold) hi++;
+  return { lo, hi };
+}
+
+function computeShadowProfile(L_m) {
+  const M = 120;
+  const Iy = new Float64Array(M);
+  let Imax = 1e-6;
+  for (let s = 0; s < M; s++) {
+    const wy = base.Yw - (s + 0.5) / M * 2 * base.Yw;
+    const I = screenIntensity(L_m, wy);
+    Iy[s] = I; if (I > Imax) Imax = I;
+  }
+  const region = findShadowRegion(Iy, 0.5);
+  const worldPerSample = (2 * base.Yw) / M;
+  const widthMm = region ? (region.hi - region.lo + 1) * worldPerSample * 1000 : 0;
+  return { Iy, Imax, M, region, widthMm };
+}
+```
+
+`drawIntensityPlot()`는 자체 루프 대신 `computeShadowProfile()`을 호출해
+곡선과 그림자 음영(반투명 사각형, `region.lo~hi`)을 함께 그린다.
+`updateInfo()`도 같은 함수로 그림자 폭(mm)을 텍스트로 표시한다(그림자가
+없으면, 즉 `region===null`이면 "해당 없음(중심 밝음)"으로 표기).
+
+---
+
+## 17. 기본값 변경 및 힌트 문구 (2026-07-02)
+
+`state` 초기값: `mode:'solid', H_mm:150, L_mm:100, lam_cm:12`
+(도선 모드 원본은 기존 `wireN:40, wireD_mm:4, wireA_mm:1.0` 유지).
+`index.html`의 하단 안내문(§Task5에서 갱신됐던 문구)을 "H와 L을 고정하고
+λ만 바꿔 보세요" 관찰 시나리오로 다시 갱신한다.

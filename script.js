@@ -8,6 +8,8 @@
   const TWO_PI = Math.PI * 2;
   const VMAX = 1.5;           // 색 포화 기준 [V/m]
   const N_MAX = 120;          // 도선 수 상한(성능)
+  const ZOOM_MIN = 0.5;       // 최대 줌아웃(50%)
+  const ZOOM_MAX = 20;        // 최대 줌인(2000%)
 
   // =====================================================================
   // 1. 상태
@@ -17,6 +19,9 @@
     lam_cm: 12.2, amp: 1.0, L_mm: 80,
     playing: true, phase: 0,
   };
+
+  // 뷰 전용 상태(물리 state와 분리) — 줌 배율만 갖는다
+  const view = { zoomFactor: 1 };
 
   // =====================================================================
   // 2. 베셀/한켈 함수  (Abramowitz & Stegun 9.4 다항 근사)
@@ -139,21 +144,20 @@
 
   function recompute() {
     if (!layout.bandW || !layout.bandH) return;
+    const _t0 = performance.now();
 
     const lam_m = state.lam_cm / 100;
     const d_m = state.d_mm / 1000;
     const aEff_m = state.a_mm / 1000;          // 상한 제거: 닿음 허용
     const k = TWO_PI / lam_m;
-    const L_m = state.L_mm / 1000;
     const N = Math.min(N_MAX, Math.max(2, state.N));
 
-    // x-윈도우: 왼쪽 입사/반사 영역 + 스크린까지. L 키우면 전체 줌아웃.
-    const xMax = L_m * 1.15;
-    const xMin = -Math.max(L_m * 0.4, 0.02);
-    let span = xMax - xMin;
-    if (span < 0.05) span = 0.05;              // 최소 폭
+    // 물리 그리드 범위: base(줌 100% 기준, L_MAX 기반) ÷ ZOOM_MIN 까지 미리 커버.
+    // 줌·L 조작과 무관 — N/d/a/λ가 바뀌어도 이 범위 자체는 안 바뀐다 (§1 gridWorld).
+    computeBaseAndGrid();
+    const xMin = gridWorld.xMin, xMax = gridWorld.xMax, Yw = gridWorld.Yw;
+    const span = xMax - xMin;
     const aspect = layout.bandH / layout.bandW;
-    const Yw = (span * aspect) / 2;            // y 반높이를 x-폭에서 유도
 
     // 도선 위치 (y=0 중심)
     const wiresY = new Float64Array(N);
@@ -197,6 +201,9 @@
       gridW, gridH, xMin, xMax: xMin + span, Yw, incRe, incIm, scRe, scIm,
     });
 
+    const _dt = performance.now() - _t0;
+    console.log(`[성능] recompute() ${_dt.toFixed(1)} ms (N=${N}, gridW=${gridW}, gridH=${gridH})`);
+
     updateInfo();
   }
 
@@ -211,10 +218,57 @@
   const layout = {
     cssW: 0, cssH: 0, marginL: 12, marginR: 12, marginT: 10, marginB: 10,
     gap: 14, bandX: 0, bandW: 0, bandH: 0, bandY: [0, 0, 0],
-    gridW: 360, plotW: 96,
+    gridW: 900, plotW: 96,
   };
 
   const BAND_TITLES = ["① 입사파", "② 산란파", "③ 중첩 (입사 + 산란)"];
+
+  // =====================================================================
+  // 6.1 뷰 지오메트리 — base(줌 100% 기준) · gridWorld(물리 계산 범위) · camera(현재 뷰)
+  // =====================================================================
+  const L_MAX_M = parseFloat(document.getElementById("lSlider").max) / 1000;  // DOM에서 읽음(하드코딩 금지)
+  const base = { xMin: 0, xMax: 0, Yw: 0 };
+  const gridWorld = { xMin: 0, xMax: 0, Yw: 0 };
+  const camera = { xMin: 0, xMax: 0, Yw: 0 };
+
+  // 세로 여유 마진(고정, λ와 무관) — §11에서 λ 비교를 위해 λ 연동을 걷어내며 도입.
+  // 6cm 부근에서 잘 보이던 비율(2λ=120mm)에 근접하게 잡은 값. 너무 빡빡/헐거우면
+  // 이 상수만 조정.
+  const Y_MARGIN_M = 0.10;
+
+  // base: 줌 100%일 때 뷰.
+  // 가로(x)는 L_MAX(스크린 거리 슬라이더 최댓값)까지 항상 다 보이는 고정 기준선 —
+  // 전파 방향이라 N/d/a/λ가 바뀌어도 안 바뀐다(리사이즈 때만 변함, §1).
+  // 세로(y)는 막대 높이 H에는 연동하되(막대 가시성 유지), λ에는 연동하지 않는다(§11).
+  // λ가 바뀔 때 세로 범위까지 같이 늘어나면 회절이 실제로 더 퍼지는 효과를 뷰가
+  // 상쇄해버려 "λ가 길수록 회절이 더 퍼진다"는 비교가 불가능해지기 때문 — 세로
+  // 여유는 고정 마진(Y_MARGIN_M)으로 대체한다. λ가 아주 커서 회절이 이 프레임을
+  // 넘치면 줌아웃으로 대응(그 자체가 회절 증가의 증거).
+  //   baseYw = 1.5 × (H/2 + Y_MARGIN_M)
+  // N/d가 바뀌면 recompute()가 매번 이 함수를 다시 불러 최신 state로 재계산한다.
+  function computeBaseAndGrid() {
+    const baseXmax = L_MAX_M * 1.15;
+    const baseXmin = -Math.max(L_MAX_M * 0.4, 0.02);
+
+    const H_m = (state.N - 1) * (state.d_mm / 1000);
+    const baseYw = 1.5 * (H_m / 2 + Y_MARGIN_M);
+
+    base.xMin = baseXmin; base.xMax = baseXmax; base.Yw = baseYw;
+
+    // gridWorld: 물리 그리드를 실제로 계산하는 범위. 최대 줌아웃(ZOOM_MIN)까지
+    // 미리 커버해둬서, 줌 조작이 절대 recompute()를 다시 트리거하지 않게 한다.
+    gridWorld.xMin = baseXmin / ZOOM_MIN;
+    gridWorld.xMax = baseXmax / ZOOM_MIN;
+    gridWorld.Yw = baseYw / ZOOM_MIN;
+  }
+
+  // camera: 현재 화면(밴드)에 실제로 보이는 범위. 항상 x=0,y=0 중심으로
+  // base를 zoomFactor만큼 나눈 값 — gridWorld의 부분집합이 되도록 보장된다.
+  function computeCamera() {
+    camera.xMin = base.xMin / view.zoomFactor;
+    camera.xMax = base.xMax / view.zoomFactor;
+    camera.Yw = base.Yw / view.zoomFactor;
+  }
 
   function resize() {
     const rect = canvas.parentElement.getBoundingClientRect();
@@ -253,6 +307,7 @@
     ctx.clearRect(0, 0, layout.cssW, layout.cssH);
     const gw = solver.gridW, gh = solver.gridH;
     if (!gw || !gh) return;
+    computeCamera();
     const A = state.amp;
     const cosP = Math.cos(state.phase), sinP = Math.sin(state.phase);
 
@@ -261,6 +316,19 @@
     }
     const img = offctx.createImageData(gw, gh);
     const data = img.data;
+
+    // camera 범위 → 오프스크린(gridWorld 범위) 픽셀 좌표. 9-인자 drawImage로
+    // 이 사각형만 잘라서 밴드 크기에 맞게 그린다 (줌 = 카메라만 움직이는 크롭).
+    const gxSpan = solver.xMax - solver.xMin;
+    let sx = (camera.xMin - solver.xMin) / gxSpan * gw;
+    let sxEnd = (camera.xMax - solver.xMin) / gxSpan * gw;
+    let sy = (solver.Yw - camera.Yw) / (2 * solver.Yw) * gh;
+    let syEnd = (solver.Yw + camera.Yw) / (2 * solver.Yw) * gh;
+    sx = Math.max(0, Math.min(gw, sx));
+    sxEnd = Math.max(0, Math.min(gw, sxEnd));
+    sy = Math.max(0, Math.min(gh, sy));
+    syEnd = Math.max(0, Math.min(gh, syEnd));
+    const sW = Math.max(1, sxEnd - sx), sH = Math.max(1, syEnd - sy);
 
     for (let band = 0; band < 3; band++) {
       for (let p = 0; p < gw * gh; p++) {
@@ -274,7 +342,7 @@
       offctx.putImageData(img, 0, 0);
       const by = layout.bandY[band];
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(offscreen, layout.bandX, by, layout.bandW, layout.bandH);
+      ctx.drawImage(offscreen, sx, sy, sW, sH, layout.bandX, by, layout.bandW, layout.bandH);
       drawOverlay(band, by);
     }
     drawIntensityPlot();
@@ -288,11 +356,13 @@
     const L_m = state.L_mm / 1000;
 
     // 세로로 샘플링 (위→아래), 최대값으로 가로 스케일
+    // §5: 줌과 무관하게 항상 base.Yw(고정 기준 범위) 전체 높이로 그린다 —
+    // 그래야 줌인해도 회절 무늬 전체(중심 봉우리+옆 봉우리들)가 항상 보인다.
     const M = 120;
     const Iy = new Float64Array(M);
     let Imax = 1e-6;
     for (let s = 0; s < M; s++) {
-      const wy = solver.Yw - (s + 0.5) / M * 2 * solver.Yw;
+      const wy = base.Yw - (s + 0.5) / M * 2 * base.Yw;
       const I = screenIntensity(L_m, wy);
       Iy[s] = I; if (I > Imax) Imax = I;
     }
@@ -302,6 +372,8 @@
     ctx.save();
     ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
     ctx.strokeRect(px + 0.5, by + 0.5, pw - 1, bh - 1);
+    ctx.fillStyle = "#8a8a92"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("전체 높이 기준", px + pw / 2, by + 12);
     const x1 = px + (1 / scale) * pw;
     ctx.strokeStyle = "#d9d9df"; ctx.setLineDash([2, 3]);
     ctx.beginPath(); ctx.moveTo(x1, by); ctx.lineTo(x1, by + bh); ctx.stroke();
@@ -325,8 +397,8 @@
   }
 
   function worldToBand(wx, wy, by) {
-    const sx = layout.bandX + (wx - solver.xMin) / (solver.xMax - solver.xMin) * layout.bandW;
-    const sy = by + (solver.Yw - wy) / (2 * solver.Yw) * layout.bandH;
+    const sx = layout.bandX + (wx - camera.xMin) / (camera.xMax - camera.xMin) * layout.bandW;
+    const sy = by + (camera.Yw - wy) / (2 * camera.Yw) * layout.bandH;
     return { x: sx, y: sy };
   }
 
@@ -335,14 +407,14 @@
     ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
     ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
 
-    const sPx = layout.bandW / (solver.xMax - solver.xMin);
+    const sPx = layout.bandW / (camera.xMax - camera.xMin);
     const dPx = (state.d_mm / 1000) * sPx;
     const aPx = (solver.aEff_m) * sPx;
     const rPx = Math.min(dPx * 0.5, Math.max(1.5, aPx));   // 닿으면 dPx의 절반(맞닿음)
     const N = state.N;
 
     // 중심선 (도선 배열 위치)
-    const top = worldToBand(0, solver.Yw, by), bot = worldToBand(0, -solver.Yw, by);
+    const top = worldToBand(0, camera.Yw, by), bot = worldToBand(0, -camera.Yw, by);
     ctx.save();
     ctx.strokeStyle = band === 0 ? "#e4e4e8" : "#9aa0aa";
     ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
@@ -351,8 +423,8 @@
 
     // 스크린 위치 (거리 L, 세로 점선)
     const Lx = state.L_mm / 1000;
-    if (Lx >= solver.xMin && Lx <= solver.xMax) {
-      const st = worldToBand(Lx, solver.Yw, by), sb = worldToBand(Lx, -solver.Yw, by);
+    if (Lx >= camera.xMin && Lx <= camera.xMax) {
+      const st = worldToBand(Lx, camera.Yw, by), sb = worldToBand(Lx, -camera.Yw, by);
       ctx.save();
       ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.moveTo(st.x, st.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
@@ -392,6 +464,10 @@
     ctx.fillStyle = "#10193a";
     ctx.fillText(BAND_TITLES[band], bx + 10, by + bh - 10);
 
+    if (band === 1) {
+      ctx.font = "11px sans-serif"; ctx.fillStyle = "#5a5a62";
+      ctx.fillText("실제로는 원형 파문 — 가로·세로 축척이 달라 타원으로 보임", bx + 120, by + bh - 10);
+    }
     if (band === 2) {
       ctx.font = "11px sans-serif"; ctx.fillStyle = "#5a5a62";
       ctx.fillText("오른쪽=막대 뒤(그림자/회절) · 왼쪽=반사 간섭 · 점선=스크린 위치", bx + 120, by + bh - 10);
@@ -447,7 +523,7 @@
   let recomputeTimer = null;
   function scheduleRecompute() {
     if (recomputeTimer) clearTimeout(recomputeTimer);
-    recomputeTimer = setTimeout(() => { recompute(); drawFrame(); }, 60);
+    recomputeTimer = setTimeout(() => { recompute(); drawFrame(); }, 150);
   }
 
   function bindSlider(id, key, parse, redrawOnly) {
@@ -461,8 +537,27 @@
   bindSlider("dSlider", "d_mm", parseFloat);
   bindSlider("aSlider", "a_mm", parseFloat);
   bindSlider("lamSlider", "lam_cm", parseFloat);
-  bindSlider("lSlider", "L_mm", parseFloat);
+  // L은 뷰 범위·물리장 계산 어디에도 관여하지 않는다(§2.1) → recompute 불필요, drawFrame만.
+  bindSlider("lSlider", "L_mm", parseFloat, true);
   bindSlider("ampSlider", "amp", parseFloat, true);
+
+  // 줌 (버튼 + 마우스 휠) — 항상 x=0,y=0 중심, view.zoomFactor 하나를 공유한다.
+  const zoomInBtn = document.getElementById("zoomInBtn");
+  const zoomOutBtn = document.getElementById("zoomOutBtn");
+  const zoomResetBtn = document.getElementById("zoomResetBtn");
+  const zoomPctVal = document.getElementById("zoomPctVal");
+  function setZoom(z) {
+    view.zoomFactor = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+    zoomPctVal.textContent = Math.round(view.zoomFactor * 100) + "%";
+    drawFrame();
+  }
+  zoomInBtn.addEventListener("click", () => setZoom(view.zoomFactor * 1.25));
+  zoomOutBtn.addEventListener("click", () => setZoom(view.zoomFactor / 1.25));
+  zoomResetBtn.addEventListener("click", () => setZoom(1));
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    setZoom(view.zoomFactor * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+  }, { passive: false });
 
   // 재생/일시정지
   const playBtn = document.getElementById("playBtn");

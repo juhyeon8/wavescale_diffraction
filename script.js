@@ -15,11 +15,11 @@
   // 1. 상태
   // =====================================================================
   const state = {
-    mode: 'wire',                              // 'wire' | 'solid' (기본값은 Task 5에서 'solid'로 변경)
+    mode: 'solid',                              // 기본값: 솔리드 모드(관찰 조건 정리, §17)
     N: 40, d_mm: 4, a_mm: 1.0,
     wireN: 40, wireD_mm: 4, wireA_mm: 1.0,      // 도선 모드 슬라이더 원본(모드 전환 시 보존)
     H_mm: 150, solidApproxWarn: false,          // 솔리드 모드 슬라이더/경고
-    lam_cm: 12.2, amp: 1.0, L_mm: 80,
+    lam_cm: 12, amp: 1.0, L_mm: 100,
     playing: true, phase: 0,
   };
 

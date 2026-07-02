@@ -48,7 +48,7 @@
     <h2>파동 설정</h2>
     <div class="row">
       <label style="width:48px">파장 λ</label>
-      <input type="range" id="lamSlider" min="1" max="30" step="0.1" value="12.2">
+      <input type="range" id="lamSlider" min="1" max="30" step="0.1" value="12">
       <span class="valbox" id="lamVal"></span>
     </div>
     <div class="row">
@@ -58,7 +58,7 @@
     </div>
     <div class="row">
       <label style="width:60px">스크린 거리 L</label>
-      <input type="range" id="lSlider" min="10" max="300" step="1" value="80">
+      <input type="range" id="lSlider" min="10" max="300" step="1" value="100">
       <span class="valbox" id="lVal"></span>
     </div>
 
@@ -95,9 +95,12 @@
     <div class="hint">
       ① 입사파 · ② 산란파(도선들의 원통파 합) · ③ 중첩(①+②). 세 칸은 같은 색 스케일.<br>
       오른쪽 곡선은 거리 L의 스크린에서 본 밝기 I(y)=|E|².
-      <b>파장별 회절 비교는 도선이 닿은 "솔리드" 상태에서</b> 하세요(틈이 있으면 투과가 섞입니다).
-      비교 중에는 <b>스크린 거리 L을 고정</b>하세요. L이 작으면 복잡한 줄무늬(근접장),
-      크면 부드러운 봉우리(원거리장)로 무늬 성격이 달라집니다 — 정상 현상입니다.<br>
+      <b>H와 L을 고정하고 λ만 바꿔 보세요</b> — λ/H·Fresnel 수 배지가
+      "그림자 뚜렷 → 전이 → 감싸 돎"으로 바뀌는 것과, 그림자 중심 세기·그림자 폭이
+      함께 변하는 것을 비교할 수 있습니다.
+      <b>파장별 회절 비교는 솔리드 모드(틈 없음)</b>에서 하세요(도선 모드는 틈 사이 투과가
+      섞입니다). L이 작으면 복잡한 줄무늬(근접장), 크면 부드러운 봉우리(원거리장)로
+      무늬 성격이 달라집니다 — 정상 현상입니다.<br>
       색: <b>빨강(+E)</b> · 흰(0) · <span style="color:#2f6feb">파랑(−E)</span>.
     </div>
   </div>

@@ -15,7 +15,10 @@
   // 1. 상태
   // =====================================================================
   const state = {
+    mode: 'wire',                              // 'wire' | 'solid' (기본값은 Task 5에서 'solid'로 변경)
     N: 40, d_mm: 4, a_mm: 1.0,
+    wireN: 40, wireD_mm: 4, wireA_mm: 1.0,      // 도선 모드 슬라이더 원본(모드 전환 시 보존)
+    H_mm: 150, solidApproxWarn: false,          // 솔리드 모드 슬라이더/경고
     lam_cm: 12.2, amp: 1.0, L_mm: 80,
     playing: true, phase: 0,
   };
@@ -503,6 +506,27 @@
   function isTouching(a_mm, d_mm) { return 2 * a_mm >= d_mm; }
   function transmissionWarn(lam_cm, d_mm) { return lam_cm * 10 < 5 * d_mm; }
 
+  // 솔리드 모드: H만으로 N/d/a 자동 산출(도선 맞닿음, d<=1mm 목표) — 순수 함수(§15.1)
+  function computeSolidWireLayout(H_mm) {
+    const nNeeded = Math.ceil(H_mm / 1) + 1;      // d <= 1mm(=λ_min/10) 목표
+    const N = Math.min(N_MAX, Math.max(2, nNeeded));
+    const d_mm = H_mm / (N - 1);
+    const a_mm = d_mm / 2;                         // 맞닿음
+    return { N, d_mm, a_mm, approxWarn: d_mm > 1 };
+  }
+
+  // 활성 모드에 따라 recompute()가 읽는 state.N/d_mm/a_mm을 갱신
+  function syncActivePhysics() {
+    if (state.mode === 'solid') {
+      const r = computeSolidWireLayout(state.H_mm);
+      state.N = r.N; state.d_mm = r.d_mm; state.a_mm = r.a_mm;
+      state.solidApproxWarn = r.approxWarn;
+    } else {
+      state.N = state.wireN; state.d_mm = state.wireD_mm; state.a_mm = state.wireA_mm;
+      state.solidApproxWarn = false;
+    }
+  }
+
   // λ/H 핵심 지표 + Fresnel 수 — 순수 헬퍼(§14)
   function lamHRatio(lam_cm, N, d_mm) {
     const H_mm = barHeight_mm(N, d_mm);
@@ -540,9 +564,11 @@
     const nF = fresnelNumber(H, state.L_mm, state.lam_cm);
     const nFInfo = fresnelBadge(nF);
 
-    const badges =
-      (touch ? `<span class="badge ok">닿음(솔리드)</span>` : `<span class="badge">틈 있음</span>`) +
-      (warn ? ` <span class="badge warn">투과 영향 구간 (λ &lt; 5d)</span>` : ``);
+    const modeBadges = (state.mode === 'solid')
+      ? `<span class="badge ok">솔리드(자동)</span>` +
+        (state.solidApproxWarn ? ` <span class="badge warn">근사(격자 상한, d&gt;1mm)</span>` : ``)
+      : (touch ? `<span class="badge ok">닿음(솔리드)</span>` : `<span class="badge">틈 있음</span>`) +
+        (warn ? ` <span class="badge warn">투과 영향 구간 (λ &lt; 5d)</span>` : ``);
 
     document.getElementById("infoBox").innerHTML =
       `<div class="lamH"><b>λ/H = ${lamH.toFixed(2)}</b> <span class="badge ${lamHInfo.cls}">${lamHInfo.text}</span></div>` +
@@ -552,7 +578,7 @@
       `<b>λ/d = ${lam_d.toFixed(2)}</b> (d/λ = ${dlam.toFixed(3)}) · L = <b>${state.L_mm.toFixed(0)} mm</b><br>` +
       `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span class="badge ${nFInfo.cls}">${nFInfo.text}</span><br>` +
       `그림자 중심 세기 <b>I₀ = ${Icenter.toFixed(3)}</b> (입사=1.000)<br>` +
-      badges;
+      modeBadges;
   }
 
   function syncLabels() {
@@ -562,6 +588,7 @@
     document.getElementById("lamVal").textContent = state.lam_cm.toFixed(1) + " cm";
     document.getElementById("ampVal").textContent = state.amp.toFixed(2) + " V/m";
     document.getElementById("lVal").textContent = state.L_mm.toFixed(0) + " mm";
+    document.getElementById("hVal").textContent = state.H_mm.toFixed(0) + " mm";
   }
 
   // =====================================================================
@@ -580,12 +607,43 @@
       if (redrawOnly) drawFrame(); else scheduleRecompute();
     });
   }
-  bindSlider("nSlider", "N", v => parseInt(v, 10));
-  bindSlider("dSlider", "d_mm", parseFloat);
-  bindSlider("aSlider", "a_mm", parseFloat);
+  function bindWireSlider(id, key) {
+    document.getElementById(id).addEventListener("input", function () {
+      state[key] = (key === 'wireN') ? parseInt(this.value, 10) : parseFloat(this.value);
+      syncActivePhysics();
+      syncLabels();
+      scheduleRecompute();
+    });
+  }
+  bindWireSlider("nSlider", "wireN");
+  bindWireSlider("dSlider", "wireD_mm");
+  bindWireSlider("aSlider", "wireA_mm");
   bindSlider("lamSlider", "lam_cm", parseFloat);
   // L이 이제 가로 범위(base.xMax/xMin)의 기준이므로 recompute 필요(§13.2).
   bindSlider("lSlider", "L_mm", parseFloat);
+
+  document.getElementById("hSlider").addEventListener("input", function () {
+    state.H_mm = parseFloat(this.value);
+    syncActivePhysics();
+    syncLabels();
+    scheduleRecompute();
+  });
+
+  const modeWireBtn = document.getElementById("modeWireBtn");
+  const modeSolidBtn = document.getElementById("modeSolidBtn");
+  function applyModeUI() {
+    document.getElementById("wireControls").style.display = (state.mode === 'wire') ? '' : 'none';
+    document.getElementById("solidControls").style.display = (state.mode === 'solid') ? '' : 'none';
+    modeWireBtn.classList.toggle("active", state.mode === 'wire');
+    modeSolidBtn.classList.toggle("active", state.mode === 'solid');
+  }
+  modeWireBtn.addEventListener("click", () => {
+    state.mode = 'wire'; syncActivePhysics(); applyModeUI(); syncLabels(); scheduleRecompute();
+  });
+  modeSolidBtn.addEventListener("click", () => {
+    state.mode = 'solid'; syncActivePhysics(); applyModeUI(); syncLabels(); scheduleRecompute();
+  });
+
   bindSlider("ampSlider", "amp", parseFloat, true);
 
   // 줌 (버튼 + 마우스 휠) — 항상 x=0,y=0 중심, view.zoomFactor 하나를 공유한다.
@@ -653,6 +711,16 @@
     console.assert(transmissionWarn(2, 5) === true,  "warn λ=20mm<25mm");
     console.assert(transmissionWarn(3, 5) === false, "no-warn λ=30mm≥25mm");
     console.log("[검증] 가드레일 헬퍼 단언 통과");
+    {
+      const r = computeSolidWireLayout(100);
+      console.assert(r.N === 101 && Math.abs(r.d_mm - 1.0) < 1e-9 && !r.approxWarn,
+        "computeSolidWireLayout(100): N=101,d=1.0mm,경고 없음");
+    }
+    {
+      const r = computeSolidWireLayout(150);
+      console.assert(r.N === 120 && r.approxWarn,
+        "computeSolidWireLayout(150): N_MAX(120) 도달, d>1mm 근사 경고");
+    }
     console.assert(lamHBadge(0.1).text.includes("그림자 뚜렷"), "lamHBadge <0.3");
     console.assert(lamHBadge(0.5).text.includes("전이"), "lamHBadge 0.3~1");
     console.assert(lamHBadge(2).text.includes("감싸"), "lamHBadge >=1");
@@ -679,6 +747,8 @@
   // =====================================================================
   // 시작
   // =====================================================================
+  syncActivePhysics();
+  applyModeUI();
   syncLabels();
   window.addEventListener("resize", resize);
   resize();       // layout 확정 + recompute + drawFrame

@@ -391,6 +391,7 @@
     // 그래야 줌인해도 회절 무늬 전체(중심 봉우리+옆 봉우리들)가 항상 보인다.
     const profile = computeShadowProfile(L_m);
     const Iy = profile.Iy;
+    const M = profile.M;
     const scale = Math.max(2, Math.ceil(profile.Imax));   // 가로 0..scale
 
     // 축 박스 + 입사 세기=1 기준선

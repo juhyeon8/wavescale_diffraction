@@ -849,10 +849,12 @@
   bindSlider("lamSlider", "lam_cm", parseFloat);
   // L: 3분할 모드는 가로 범위 기준이라 recompute 필요(§13.2). 1:1 모드는
   // gridWorld가 이미 H 기반으로 충분해 recompute 불필요 — drawFrame만(§20.6).
+  // 단, 물리 필드는 L에 무관해도(§20.1) 정보 박스(S̄/I₀ 등)는 현재 L로 다시
+  // 평가해야 하므로 updateInfo()는 recompute 없이 별도로 호출한다.
   document.getElementById("lSlider").addEventListener("input", function () {
     state.L_mm = parseFloat(this.value);
     syncLabels();
-    if (state.viewMode === '1to1') drawFrame(); else scheduleRecompute();
+    if (state.viewMode === '1to1') { updateInfo(); drawFrame(); } else scheduleRecompute();
   });
 
   document.getElementById("hSlider").addEventListener("input", function () {

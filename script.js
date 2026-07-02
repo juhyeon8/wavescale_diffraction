@@ -21,6 +21,8 @@
     H_mm: 150, solidApproxWarn: false,          // 솔리드 모드 슬라이더/경고
     lam_cm: 12, amp: 1.0, L_mm: 100,
     playing: true, phase: 0,
+    viewMode: '3band',                          // '3band' | '1to1' — 관찰 모드(§20)
+    viewField: 'total',                         // 1:1 모드 전용: 'inc'|'sc'|'total'(기본 ③중첩)
   };
 
   // 뷰 전용 상태(물리 state와 분리) — 줌 배율 + 등방 판정 결과(§13)
@@ -203,7 +205,6 @@
     computeBaseAndGrid();
     const xMin = gridWorld.xMin, xMax = gridWorld.xMax, Yw = gridWorld.Yw;
     const span = xMax - xMin;
-    const aspect = layout.bandH / layout.bandW;
 
     // 도선 위치 (y=0 중심)
     const wiresY = new Float64Array(N);
@@ -226,7 +227,9 @@
     for (let n = 0; n < N; n++) { cRe[n] = c[n * 2]; cIm[n] = c[n * 2 + 1]; }
 
     const gridW = layout.gridW;
-    const gridH = Math.max(40, Math.round(gridW * aspect));
+    const aspect3band = layout.bandH / layout.bandW;
+    const aspect1to1 = layout.bandH1to1 / layout.bandW;
+    const gridH = requiredGridH(gridW, aspect3band, aspect1to1, state.viewMode);
     const incRe = new Float32Array(gridW * gridH);
     const incIm = new Float32Array(gridW * gridH);
     const scRe = new Float32Array(gridW * gridH);
@@ -264,6 +267,7 @@
   const layout = {
     cssW: 0, cssH: 0, marginL: 12, marginR: 12, marginT: 10, marginB: 10,
     gap: 14, bandX: 0, bandW: 0, bandH: 0, bandY: [0, 0, 0],
+    bandH1to1: 0,                                     // 1:1 모드 단일 밴드 높이(§20.2)
     gridW: 900, plotW: 96,
   };
 
@@ -273,8 +277,10 @@
   // 6.1 뷰 지오메트리 — base(줌 100% 기준) · gridWorld(물리 계산 범위) · camera(현재 뷰)
   // =====================================================================
   const base = { xMin: 0, xMax: 0, Yw: 0 };
+  const base1to1 = { xMin: 0, xMax: 0, Yw: 0 };       // 1:1 모드 zoom=100% 뷰(§20.2)
   const gridWorld = { xMin: 0, xMax: 0, Yw: 0 };
   const camera = { xMin: 0, xMax: 0, Yw: 0 };
+  const camera1to1 = { xMin: 0, xMax: 0, Yw: 0 };
 
   // [등방 판정] 1:1 등방 기준 세로 반높이 vs 막대 가시성 하한, 큰 쪽 채택.
   // 순수 함수 — selfCheck()에서 단언.
@@ -283,6 +289,30 @@
     const floorYw = 1.15 * (H_m / 2 + 0.05);
     const baseYw = Math.max(isoYw, floorYw);
     return { baseYw, isotropic: baseYw === isoYw, scaleRatio: (2 * baseYw) / (aspect * span) };
+  }
+
+  // [1:1 모드] 좌표계 — L 무관, H(H_m)만의 함수(§20.2). 순수 함수 — selfCheck()에서 단언.
+  function compute1to1Range(H_m, bandW, bandH1to1) {
+    const Yw1to1 = 1.25 * (H_m / 2 + 0.05);
+    const xSpan1to1 = 2 * Yw1to1 * (bandW / bandH1to1);
+    const xMin1to1 = -xSpan1to1 / 3;                  // 장애물(x=0)을 밴드 왼쪽 1/3 지점에 배치
+    const xMax1to1 = xSpan1to1 * 2 / 3;
+    return { Yw1to1, xMin1to1, xMax1to1 };
+  }
+
+  // gridWorld = 3분할 몫과 1:1 몫의 합집합(§20.3). 순수 함수 — selfCheck()에서 단언.
+  function unionGridWorld(baseXmin, baseXmax, baseYw, range1to1, zoomMin) {
+    const xMin = Math.min(baseXmin, range1to1.xMin1to1) / zoomMin;
+    const xMax = Math.max(baseXmax, range1to1.xMax1to1) / zoomMin;
+    const Yw = Math.max(baseYw, range1to1.Yw1to1) / zoomMin;
+    return { xMin, xMax, Yw };
+  }
+
+  // gridH 요구치 — 현재 모드가 요구하는 세로 해상도(§20.4, "현재 모드 추종").
+  // 순수 함수 — selfCheck()에서 단언.
+  function requiredGridH(gridW, aspect3band, aspect1to1, viewMode) {
+    const aspect = (viewMode === '1to1') ? aspect1to1 : aspect3band;
+    return Math.max(40, Math.round(gridW * aspect));
   }
 
   // base: 줌 100%일 때 뷰.
@@ -303,11 +333,14 @@
 
     base.xMin = baseXmin; base.xMax = baseXmax; base.Yw = baseYw;
 
-    // gridWorld: 물리 그리드를 실제로 계산하는 범위. 최대 줌아웃(ZOOM_MIN)까지
-    // 미리 커버해둬서, 줌 조작이 절대 recompute()를 다시 트리거하지 않게 한다.
-    gridWorld.xMin = baseXmin / ZOOM_MIN;
-    gridWorld.xMax = baseXmax / ZOOM_MIN;
-    gridWorld.Yw = baseYw / ZOOM_MIN;
+    // [1:1 모드] 좌표계 — L 무관, H만의 함수(§20.2)
+    layout.bandH1to1 = layout.cssH - layout.marginT - layout.marginB;
+    const range1to1 = compute1to1Range(H_m, layout.bandW, layout.bandH1to1);
+    base1to1.xMin = range1to1.xMin1to1; base1to1.xMax = range1to1.xMax1to1; base1to1.Yw = range1to1.Yw1to1;
+
+    // gridWorld: 3분할 몫과 1:1 몫의 합집합, ZOOM_MIN까지 미리 커버(§20.3)
+    const union = unionGridWorld(baseXmin, baseXmax, baseYw, range1to1, ZOOM_MIN);
+    gridWorld.xMin = union.xMin; gridWorld.xMax = union.xMax; gridWorld.Yw = union.Yw;
   }
 
   // camera: 현재 화면(밴드)에 실제로 보이는 범위. 항상 x=0,y=0 중심으로
@@ -316,6 +349,22 @@
     camera.xMin = base.xMin / view.zoomFactor;
     camera.xMax = base.xMax / view.zoomFactor;
     camera.Yw = base.Yw / view.zoomFactor;
+    camera1to1.xMin = base1to1.xMin / view.zoomFactor;
+    camera1to1.xMax = base1to1.xMax / view.zoomFactor;
+    camera1to1.Yw = base1to1.Yw / view.zoomFactor;
+  }
+
+  // 모드 전환 — gridH 요구치가 실제로 바뀔 때만 recompute(§20.4, 최대 1회, 양방향 허용).
+  // 버튼 바인딩(호출부)은 이후 Task에서 연결한다.
+  function switchViewMode(newMode) {
+    if (state.viewMode === newMode) return;
+    const gridW = layout.gridW;
+    const aspect3band = layout.bandH / layout.bandW;
+    const aspect1to1 = layout.bandH1to1 / layout.bandW;
+    const oldGridH = requiredGridH(gridW, aspect3band, aspect1to1, state.viewMode);
+    const newGridH = requiredGridH(gridW, aspect3band, aspect1to1, newMode);
+    state.viewMode = newMode;
+    if (oldGridH !== newGridH) scheduleRecompute(); else drawFrame();
   }
 
   function resize() {
@@ -816,6 +865,22 @@
     console.assert(Math.abs(shadowFillRatioFromSamples([0.2, 0.4, 0.6, 0.8]) - 0.5) < 1e-9,
       "shadowFillRatioFromSamples([.2,.4,.6,.8])=0.5");
     console.assert(shadowFillRatioFromSamples([0, 0, 0]) === 0, "shadowFillRatioFromSamples 전부 0 → 0");
+    {
+      const r = compute1to1Range(0.1, 1, 1);
+      console.assert(Math.abs(r.Yw1to1 - 0.125) < 1e-9, "compute1to1Range Yw1to1(H=0.1,정사각비율)=0.125");
+      console.assert(Math.abs(r.xMin1to1 - (-1 / 12)) < 1e-9, "compute1to1Range xMin1to1=-1/12");
+      console.assert(Math.abs(r.xMax1to1 - (1 / 6)) < 1e-9, "compute1to1Range xMax1to1=1/6");
+    }
+    {
+      const small = unionGridWorld(-0.1, 0.2, 0.05, { xMin1to1: -0.02, xMax1to1: 0.04, Yw1to1: 0.03 }, 0.5);
+      console.assert(Math.abs(small.xMax - 0.4) < 1e-9 && Math.abs(small.Yw - 0.1) < 1e-9,
+        "unionGridWorld: 3분할 몫이 더 크면 그대로(÷zoomMin)");
+      const big = unionGridWorld(-0.1, 0.2, 0.05, { xMin1to1: -0.3, xMax1to1: 0.5, Yw1to1: 0.2 }, 0.5);
+      console.assert(Math.abs(big.xMax - 1.0) < 1e-9 && Math.abs(big.Yw - 0.4) < 1e-9,
+        "unionGridWorld: 1:1 몫이 더 크면 그쪽 채택(÷zoomMin)");
+    }
+    console.assert(requiredGridH(900, 0.25, 0.75, '3band') === 225, "requiredGridH 3band 모드");
+    console.assert(requiredGridH(900, 0.25, 0.75, '1to1') === 675, "requiredGridH 1to1 모드");
 
     // 장애물 없을 때(도선 0개) 스크린 세기 ≈ 1
     {

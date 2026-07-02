@@ -145,6 +145,32 @@
     return tr * tr + ti * ti;
   }
 
+  // 그림자 폭 지표(§16) — 스크린 I(y)에서 중심(y=0) 기준 I<threshold 연속 구간
+  function findShadowRegion(Iy, threshold) {
+    const M = Iy.length;
+    const c = Math.floor(M / 2);
+    if (Iy[c] >= threshold) return null;
+    let lo = c, hi = c;
+    while (lo > 0 && Iy[lo - 1] < threshold) lo--;
+    while (hi < M - 1 && Iy[hi + 1] < threshold) hi++;
+    return { lo, hi };
+  }
+
+  function computeShadowProfile(L_m) {
+    const M = 120;
+    const Iy = new Float64Array(M);
+    let Imax = 1e-6;
+    for (let s = 0; s < M; s++) {
+      const wy = base.Yw - (s + 0.5) / M * 2 * base.Yw;
+      const I = screenIntensity(L_m, wy);
+      Iy[s] = I; if (I > Imax) Imax = I;
+    }
+    const region = findShadowRegion(Iy, 0.5);
+    const worldPerSample = (2 * base.Yw) / M;
+    const widthMm = region ? (region.hi - region.lo + 1) * worldPerSample * 1000 : 0;
+    return { Iy, Imax, M, region, widthMm };
+  }
+
   function recompute() {
     if (!layout.bandW || !layout.bandH) return;
     const _t0 = performance.now();
@@ -363,20 +389,24 @@
     // 세로로 샘플링 (위→아래), 최대값으로 가로 스케일
     // §5: 줌과 무관하게 항상 base.Yw(고정 기준 범위) 전체 높이로 그린다 —
     // 그래야 줌인해도 회절 무늬 전체(중심 봉우리+옆 봉우리들)가 항상 보인다.
-    const M = 120;
-    const Iy = new Float64Array(M);
-    let Imax = 1e-6;
-    for (let s = 0; s < M; s++) {
-      const wy = base.Yw - (s + 0.5) / M * 2 * base.Yw;
-      const I = screenIntensity(L_m, wy);
-      Iy[s] = I; if (I > Imax) Imax = I;
-    }
-    const scale = Math.max(2, Math.ceil(Imax));   // 가로 0..scale
+    const profile = computeShadowProfile(L_m);
+    const Iy = profile.Iy;
+    const scale = Math.max(2, Math.ceil(profile.Imax));   // 가로 0..scale
 
     // 축 박스 + 입사 세기=1 기준선
     ctx.save();
     ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
     ctx.strokeRect(px + 0.5, by + 0.5, pw - 1, bh - 1);
+    // 그림자 음영
+    if (profile.region) {
+      const { lo, hi } = profile.region;
+      const syLo = by + (lo / profile.M) * bh;
+      const syHi = by + ((hi + 1) / profile.M) * bh;
+      ctx.save();
+      ctx.fillStyle = "rgba(192,57,43,0.12)";
+      ctx.fillRect(px, syLo, pw, syHi - syLo);
+      ctx.restore();
+    }
     ctx.fillStyle = "#8a8a92"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
     ctx.fillText("전체 높이 기준", px + pw / 2, by + 12);
     const x1 = px + (1 / scale) * pw;
@@ -559,6 +589,11 @@
     const Icenter = (solver.wiresY && solver.wiresY.length)
       ? screenIntensity(state.L_mm / 1000, 0) : 1;
 
+    const shadowProfile = computeShadowProfile(state.L_mm / 1000);
+    const shadowText = shadowProfile.region
+      ? `${shadowProfile.widthMm.toFixed(1)} mm`
+      : `해당 없음(중심 밝음)`;
+
     const lamH = lamHRatio(state.lam_cm, state.N, state.d_mm);
     const lamHInfo = lamHBadge(lamH);
     const nF = fresnelNumber(H, state.L_mm, state.lam_cm);
@@ -577,7 +612,7 @@
       `간격 d = <b>${state.d_mm.toFixed(1)} mm</b> · 굵기 a = <b>${state.a_mm.toFixed(2)} mm</b><br>` +
       `<b>λ/d = ${lam_d.toFixed(2)}</b> (d/λ = ${dlam.toFixed(3)}) · L = <b>${state.L_mm.toFixed(0)} mm</b><br>` +
       `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span class="badge ${nFInfo.cls}">${nFInfo.text}</span><br>` +
-      `그림자 중심 세기 <b>I₀ = ${Icenter.toFixed(3)}</b> (입사=1.000)<br>` +
+      `그림자 중심 세기 <b>I₀ = ${Icenter.toFixed(3)}</b> (입사=1.000) · 그림자 폭 <b>${shadowText}</b><br>` +
       modeBadges;
   }
 
@@ -729,6 +764,13 @@
     console.assert(fresnelBadge(0.1).text.includes("메워짐"), "fresnelBadge <0.5");
     console.assert(Math.abs(lamHRatio(12, 5, 4) - 7.5) < 1e-9, "lamHRatio(12,5,4)=7.5");
     console.assert(Math.abs(fresnelNumber(16, 100, 12) - (8 * 8) / (100 * 120)) < 1e-9, "fresnelNumber(16,100,12)");
+    {
+      const testIy = new Float64Array([1, 1, 0.3, 0.2, 0.1, 0.2, 0.3, 1, 1]);
+      const r = findShadowRegion(testIy, 0.5);
+      console.assert(r && r.lo === 2 && r.hi === 6, "findShadowRegion 기본 케이스");
+    }
+    console.assert(findShadowRegion(new Float64Array([1, 1, 1, 1, 1]), 0.5) === null,
+      "findShadowRegion 그림자 없음");
 
     // 장애물 없을 때(도선 0개) 스크린 세기 ≈ 1
     {

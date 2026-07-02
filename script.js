@@ -461,6 +461,24 @@
       ctx.fillText("입사파 진행 →", ax, ay - 8);
     }
 
+    // 막대 높이(H) 치수선 — ①밴드에서만, 줌 추적(worldToBand가 camera 기준이라 자동 반영)
+    if (band === 0) {
+      const H_m = (state.N - 1) * (state.d_mm / 1000);
+      const halfH = H_m / 2;
+      const top = worldToBand(0, halfH, by), bot = worldToBand(0, -halfH, by);
+      const dimX = Math.max(bx + 6, top.x - 20);
+      ctx.save();
+      ctx.strokeStyle = "#5a5a62"; ctx.fillStyle = "#5a5a62"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(dimX, top.y); ctx.lineTo(dimX, bot.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(dimX, top.y); ctx.lineTo(dimX - 3, top.y + 6); ctx.lineTo(dimX + 3, top.y + 6); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(dimX, bot.y); ctx.lineTo(dimX - 3, bot.y - 6); ctx.lineTo(dimX + 3, bot.y - 6); ctx.closePath(); ctx.fill();
+      ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+      ctx.save(); ctx.translate(dimX - 8, (top.y + bot.y) / 2); ctx.rotate(-Math.PI / 2);
+      ctx.fillText(`H = ${(H_m * 1000).toFixed(0)} mm`, 0, 0);
+      ctx.restore();
+      ctx.restore();
+    }
+
     // 밴드 제목
     ctx.font = "bold 13px sans-serif"; ctx.textAlign = "left";
     ctx.fillStyle = "#10193a";
@@ -485,6 +503,26 @@
   function isTouching(a_mm, d_mm) { return 2 * a_mm >= d_mm; }
   function transmissionWarn(lam_cm, d_mm) { return lam_cm * 10 < 5 * d_mm; }
 
+  // λ/H 핵심 지표 + Fresnel 수 — 순수 헬퍼(§14)
+  function lamHRatio(lam_cm, N, d_mm) {
+    const H_mm = barHeight_mm(N, d_mm);
+    return (lam_cm * 10) / H_mm;                     // λ[mm] / H[mm]
+  }
+  function lamHBadge(ratio) {
+    if (ratio < 0.3) return { cls: '', text: '그림자 뚜렷 (빛처럼 직진)' };
+    if (ratio < 1) return { cls: 'warn', text: '회절 전이 구간' };
+    return { cls: 'ok', text: '장애물을 감싸 돎 (라디오파처럼)' };
+  }
+  function fresnelNumber(H_mm, L_mm, lam_cm) {
+    const lam_mm = lam_cm * 10;
+    return Math.pow(H_mm / 2, 2) / (L_mm * lam_mm);
+  }
+  function fresnelBadge(nf) {
+    if (nf > 3) return { cls: '', text: '기하 그림자 구간' };
+    if (nf >= 0.5) return { cls: 'warn', text: '전이' };
+    return { cls: 'ok', text: '그림자 메워짐' };
+  }
+
   function updateInfo() {
     const lam_m = state.lam_cm / 100;
     const f_GHz = C_LIGHT / lam_m / 1e9;
@@ -497,15 +535,22 @@
     const Icenter = (solver.wiresY && solver.wiresY.length)
       ? screenIntensity(state.L_mm / 1000, 0) : 1;
 
+    const lamH = lamHRatio(state.lam_cm, state.N, state.d_mm);
+    const lamHInfo = lamHBadge(lamH);
+    const nF = fresnelNumber(H, state.L_mm, state.lam_cm);
+    const nFInfo = fresnelBadge(nF);
+
     const badges =
       (touch ? `<span class="badge ok">닿음(솔리드)</span>` : `<span class="badge">틈 있음</span>`) +
       (warn ? ` <span class="badge warn">투과 영향 구간 (λ &lt; 5d)</span>` : ``);
 
     document.getElementById("infoBox").innerHTML =
+      `<div class="lamH"><b>λ/H = ${lamH.toFixed(2)}</b> <span class="badge ${lamHInfo.cls}">${lamHInfo.text}</span></div>` +
       `도선 N = <b>${state.N}</b> · 막대 높이 H = <b>${H.toFixed(1)} mm</b><br>` +
       `파장 λ = <b>${state.lam_cm.toFixed(1)} cm</b> (f ≈ <b>${f_GHz.toFixed(2)} GHz</b>)<br>` +
       `간격 d = <b>${state.d_mm.toFixed(1)} mm</b> · 굵기 a = <b>${state.a_mm.toFixed(2)} mm</b><br>` +
       `<b>λ/d = ${lam_d.toFixed(2)}</b> (d/λ = ${dlam.toFixed(3)}) · L = <b>${state.L_mm.toFixed(0)} mm</b><br>` +
+      `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span class="badge ${nFInfo.cls}">${nFInfo.text}</span><br>` +
       `그림자 중심 세기 <b>I₀ = ${Icenter.toFixed(3)}</b> (입사=1.000)<br>` +
       badges;
   }
@@ -608,6 +653,14 @@
     console.assert(transmissionWarn(2, 5) === true,  "warn λ=20mm<25mm");
     console.assert(transmissionWarn(3, 5) === false, "no-warn λ=30mm≥25mm");
     console.log("[검증] 가드레일 헬퍼 단언 통과");
+    console.assert(lamHBadge(0.1).text.includes("그림자 뚜렷"), "lamHBadge <0.3");
+    console.assert(lamHBadge(0.5).text.includes("전이"), "lamHBadge 0.3~1");
+    console.assert(lamHBadge(2).text.includes("감싸"), "lamHBadge >=1");
+    console.assert(fresnelBadge(5).text.includes("기하"), "fresnelBadge >3");
+    console.assert(fresnelBadge(1).text.includes("전이"), "fresnelBadge 0.5~3");
+    console.assert(fresnelBadge(0.1).text.includes("메워짐"), "fresnelBadge <0.5");
+    console.assert(Math.abs(lamHRatio(12, 5, 4) - 7.5) < 1e-9, "lamHRatio(12,5,4)=7.5");
+    console.assert(Math.abs(fresnelNumber(16, 100, 12) - (8 * 8) / (100 * 120)) < 1e-9, "fresnelNumber(16,100,12)");
 
     // 장애물 없을 때(도선 0개) 스크린 세기 ≈ 1
     {

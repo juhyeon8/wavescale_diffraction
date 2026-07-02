@@ -75,6 +75,8 @@ button.std:hover { background: #e4e4e8; }
 .badge.ok { background: #e3f3e8; color: #1a8a4a; }
 .badge.warn { background: #fdeaea; color: #c0392b; }
 
+.info .lamH { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+
 /* 화면 보기(줌) */
 .zoomRow { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .zoomBtn {

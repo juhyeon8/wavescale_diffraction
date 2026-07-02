@@ -171,6 +171,23 @@
     return { Iy, Imax, M, region, widthMm };
   }
 
+  // 그림자 채움률 S̄(§19) — 기하 그림자 |y|≤H/2 구간의 세기 평균. 기하광학이면 0.
+  // 순수 함수(표본 배열만 받음) — selfCheck()에서 단언. 상한(≤1) 없음: 경계
+  // 회절 무늬가 구간에 들어오면 S̄가 1을 살짝 넘을 수 있다(정상 물리, §19.2).
+  function shadowFillRatioFromSamples(samples) {
+    let sum = 0;
+    for (let i = 0; i < samples.length; i++) sum += samples[i];
+    return sum / samples.length;
+  }
+  function computeShadowFillRatio(L_m, H_m, samples = 100) {
+    const arr = new Array(samples);
+    for (let s = 0; s < samples; s++) {
+      const wy = -H_m / 2 + (s + 0.5) / samples * H_m;
+      arr[s] = screenIntensity(L_m, wy);
+    }
+    return shadowFillRatioFromSamples(arr);
+  }
+
   function recompute() {
     if (!layout.bandW || !layout.bandH) return;
     const _t0 = performance.now();
@@ -772,6 +789,9 @@
     }
     console.assert(findShadowRegion(new Float64Array([1, 1, 1, 1, 1]), 0.5) === null,
       "findShadowRegion 그림자 없음");
+    console.assert(Math.abs(shadowFillRatioFromSamples([0.2, 0.4, 0.6, 0.8]) - 0.5) < 1e-9,
+      "shadowFillRatioFromSamples([.2,.4,.6,.8])=0.5");
+    console.assert(shadowFillRatioFromSamples([0, 0, 0]) === 0, "shadowFillRatioFromSamples 전부 0 → 0");
 
     // 장애물 없을 때(도선 0개) 스크린 세기 ≈ 1
     {
@@ -785,6 +805,12 @@
     console.assert(Math.abs(screenIntensity(state.L_mm / 1000, 0) - 1) < 0.2 || state.N >= 2,
       "screenIntensity 정의됨");
     console.log("[검증] screenIntensity(중심)=", screenIntensity(state.L_mm / 1000, 0).toFixed(3));
+    {
+      const H_m = barHeight_mm(state.N, state.d_mm) / 1000;
+      const sbar = computeShadowFillRatio(state.L_mm / 1000, H_m);
+      console.assert(sbar >= 0, "S̄ ≥ 0");
+      console.log("[검증] 그림자 채움률 S̄=", sbar.toFixed(4));
+    }
   }
 
   // =====================================================================

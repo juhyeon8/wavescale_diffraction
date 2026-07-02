@@ -411,43 +411,55 @@
     if (offscreen.width !== gw || offscreen.height !== gh) {
       offscreen.width = gw; offscreen.height = gh;
     }
-    const img = offctx.createImageData(gw, gh);
-    const data = img.data;
-
-    // camera 범위 → 오프스크린(gridWorld 범위) 픽셀 좌표. 9-인자 drawImage로
-    // 이 사각형만 잘라서 밴드 크기에 맞게 그린다 (줌 = 카메라만 움직이는 크롭).
     const gxSpan = solver.xMax - solver.xMin;
-    let sx = (camera.xMin - solver.xMin) / gxSpan * gw;
-    let sxEnd = (camera.xMax - solver.xMin) / gxSpan * gw;
-    let sy = (solver.Yw - camera.Yw) / (2 * solver.Yw) * gh;
-    let syEnd = (solver.Yw + camera.Yw) / (2 * solver.Yw) * gh;
-    sx = Math.max(0, Math.min(gw, sx));
-    sxEnd = Math.max(0, Math.min(gw, sxEnd));
-    sy = Math.max(0, Math.min(gh, sy));
-    syEnd = Math.max(0, Math.min(gh, syEnd));
-    const sW = Math.max(1, sxEnd - sx), sH = Math.max(1, syEnd - sy);
 
-    for (let band = 0; band < 3; band++) {
+    // 필드값(0=입사/1=산란/2=중첩)을 오프스크린에 그린 뒤, cam 범위로 crop해서
+    // destRect(밴드 픽셀 사각형)에 그린다 — 3분할·1:1 공용(§20.5).
+    function renderField(fieldIndex, cam, destX, destY, destW, destH) {
+      const img = offctx.createImageData(gw, gh);
+      const data = img.data;
       for (let p = 0; p < gw * gh; p++) {
         let fr, fi;
-        if (band === 0) { fr = solver.incRe[p]; fi = solver.incIm[p]; }
-        else if (band === 1) { fr = solver.scRe[p]; fi = solver.scIm[p]; }
+        if (fieldIndex === 0) { fr = solver.incRe[p]; fi = solver.incIm[p]; }
+        else if (fieldIndex === 1) { fr = solver.scRe[p]; fi = solver.scIm[p]; }
         else { fr = solver.incRe[p] + solver.scRe[p]; fi = solver.incIm[p] + solver.scIm[p]; }
         const val = (fr * cosP + fi * sinP) * A;
         colorFor(val / VMAX, data, p * 4);
       }
       offctx.putImageData(img, 0, 0);
-      const by = layout.bandY[band];
+      let sx = (cam.xMin - solver.xMin) / gxSpan * gw;
+      let sxEnd = (cam.xMax - solver.xMin) / gxSpan * gw;
+      let sy = (solver.Yw - cam.Yw) / (2 * solver.Yw) * gh;
+      let syEnd = (solver.Yw + cam.Yw) / (2 * solver.Yw) * gh;
+      sx = Math.max(0, Math.min(gw, sx));
+      sxEnd = Math.max(0, Math.min(gw, sxEnd));
+      sy = Math.max(0, Math.min(gh, sy));
+      syEnd = Math.max(0, Math.min(gh, syEnd));
+      const sW = Math.max(1, sxEnd - sx), sH = Math.max(1, syEnd - sy);
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(offscreen, sx, sy, sW, sH, layout.bandX, by, layout.bandW, layout.bandH);
-      drawOverlay(band, by);
+      ctx.drawImage(offscreen, sx, sy, sW, sH, destX, destY, destW, destH);
     }
-    drawIntensityPlot();
+
+    let plotBy, plotBh;
+    if (state.viewMode === '1to1') {
+      const fieldIndex = state.viewField === 'inc' ? 0 : (state.viewField === 'sc' ? 1 : 2);
+      const by = layout.marginT;
+      renderField(fieldIndex, camera1to1, layout.bandX, by, layout.bandW, layout.bandH1to1);
+      drawOverlay1to1(by);
+      plotBy = by; plotBh = layout.bandH1to1;
+    } else {
+      for (let band = 0; band < 3; band++) {
+        const by = layout.bandY[band];
+        renderField(band, camera, layout.bandX, by, layout.bandW, layout.bandH);
+        drawOverlay(band, by);
+      }
+      plotBy = layout.bandY[2]; plotBh = layout.bandH;
+    }
+    drawIntensityPlot(plotBy, plotBh);
   }
 
-  function drawIntensityPlot() {
+  function drawIntensityPlot(by, bh) {
     if (!solver.wiresY || !solver.wiresY.length) return;
-    const by = layout.bandY[2], bh = layout.bandH;
     const px = layout.bandX + layout.bandW + layout.gap;
     const pw = layout.plotW;
     const L_m = state.L_mm / 1000;
@@ -615,6 +627,96 @@
     }
   }
 
+  function worldToBand1to1(wx, wy, by) {
+    const sx = layout.bandX + (wx - camera1to1.xMin) / (camera1to1.xMax - camera1to1.xMin) * layout.bandW;
+    const sy = by + (camera1to1.Yw - wy) / (2 * camera1to1.Yw) * layout.bandH1to1;
+    return { x: sx, y: sy };
+  }
+
+  const VIEW_FIELD_TITLES = { inc: "① 입사파", sc: "② 산란파", total: "③ 중첩 (입사 + 산란)" };
+
+  // 1:1 관찰 모드 오버레이 — drawOverlay(band,by)와 동형이지만 단일 필드·정의상
+  // 항상 등방(축척비 배지 없음)이라 더 단순하다(§20.5).
+  function drawOverlay1to1(by) {
+    const bx = layout.bandX, bw = layout.bandW, bh = layout.bandH1to1;
+    ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
+    ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+
+    const sPx = layout.bandW / (camera1to1.xMax - camera1to1.xMin);
+    const dPx = (state.d_mm / 1000) * sPx;
+    const aPx = solver.aEff_m * sPx;
+    const rPx = Math.min(dPx * 0.5, Math.max(1.5, aPx));
+    const N = state.N;
+
+    // 중심선
+    const top = worldToBand1to1(0, camera1to1.Yw, by), bot = worldToBand1to1(0, -camera1to1.Yw, by);
+    ctx.save();
+    ctx.strokeStyle = "#9aa0aa"; ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(top.x, top.y); ctx.lineTo(bot.x, bot.y); ctx.stroke();
+    ctx.restore();
+
+    // 스크린 위치(거리 L) — 프레임 안이면 점선, 밖이면 우측 가장자리 라벨만(§20.5).
+    // L은 항상 양수(10~300mm)이고 xMin1to1은 항상 음수이므로 왼쪽 이탈은 없다.
+    const Lx = state.L_mm / 1000;
+    if (Lx >= camera1to1.xMin && Lx <= camera1to1.xMax) {
+      const st = worldToBand1to1(Lx, camera1to1.Yw, by), sb = worldToBand1to1(Lx, -camera1to1.Yw, by);
+      ctx.save();
+      ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(st.x, st.y); ctx.lineTo(sb.x, sb.y); ctx.stroke();
+      ctx.restore();
+      ctx.save(); ctx.font = "10px sans-serif"; ctx.fillStyle = "#c0392b";
+      ctx.textAlign = "center"; ctx.fillText("스크린", (st.x + sb.x) / 2, by + 12);
+      ctx.restore();
+    } else if (Lx > camera1to1.xMax) {
+      const outsideMm = (Lx - camera1to1.xMax) * 1000;
+      ctx.save(); ctx.font = "10px sans-serif"; ctx.fillStyle = "#c0392b"; ctx.textAlign = "right";
+      ctx.fillText(`스크린 → 오른쪽 밖 ${outsideMm.toFixed(0)} mm`, bx + bw - 6, by + 12);
+      ctx.restore();
+    }
+
+    // 도선
+    for (let n = 0; n < N; n++) {
+      const p = worldToBand1to1(0, solver.wiresY[n], by);
+      if (p.y < by - 4 || p.y > by + bh + 4) continue;
+      ctx.beginPath(); ctx.arc(p.x, p.y, rPx, 0, TWO_PI);
+      ctx.fillStyle = "#3a3a40"; ctx.fill();
+      ctx.lineWidth = 1; ctx.strokeStyle = "#1c1c1f"; ctx.stroke();
+    }
+
+    // 진행방향 화살표
+    {
+      const ay = by + 16, ax = bx + 16;
+      ctx.fillStyle = "#444"; ctx.strokeStyle = "#444"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + 34, ay); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ax + 34, ay); ctx.lineTo(ax + 27, ay - 4); ctx.lineTo(ax + 27, ay + 4); ctx.closePath(); ctx.fill();
+      ctx.font = "11px sans-serif"; ctx.textAlign = "left"; ctx.fillStyle = "#444";
+      ctx.fillText("입사파 진행 →", ax, ay - 8);
+    }
+
+    // 막대 높이(H) 치수선
+    {
+      const H_m = (state.N - 1) * (state.d_mm / 1000);
+      const halfH = H_m / 2;
+      const top2 = worldToBand1to1(0, halfH, by), bot2 = worldToBand1to1(0, -halfH, by);
+      const dimX = Math.max(bx + 6, top2.x - 20);
+      ctx.save();
+      ctx.strokeStyle = "#5a5a62"; ctx.fillStyle = "#5a5a62"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(dimX, top2.y); ctx.lineTo(dimX, bot2.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(dimX, top2.y); ctx.lineTo(dimX - 3, top2.y + 6); ctx.lineTo(dimX + 3, top2.y + 6); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(dimX, bot2.y); ctx.lineTo(dimX - 3, bot2.y - 6); ctx.lineTo(dimX + 3, bot2.y - 6); ctx.closePath(); ctx.fill();
+      ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+      ctx.save(); ctx.translate(dimX - 8, (top2.y + bot2.y) / 2); ctx.rotate(-Math.PI / 2);
+      ctx.fillText(`H = ${(H_m * 1000).toFixed(0)} mm`, 0, 0);
+      ctx.restore();
+      ctx.restore();
+    }
+
+    // 제목(현재 표시 필드)
+    ctx.font = "bold 13px sans-serif"; ctx.textAlign = "left";
+    ctx.fillStyle = "#10193a";
+    ctx.fillText(VIEW_FIELD_TITLES[state.viewField] + " · 1:1 관찰 모드", bx + 10, by + bh - 10);
+  }
+
   // =====================================================================
   // 8. 정보 표시
   // =====================================================================
@@ -745,8 +847,13 @@
   bindWireSlider("dSlider", "wireD_mm");
   bindWireSlider("aSlider", "wireA_mm");
   bindSlider("lamSlider", "lam_cm", parseFloat);
-  // L이 이제 가로 범위(base.xMax/xMin)의 기준이므로 recompute 필요(§13.2).
-  bindSlider("lSlider", "L_mm", parseFloat);
+  // L: 3분할 모드는 가로 범위 기준이라 recompute 필요(§13.2). 1:1 모드는
+  // gridWorld가 이미 H 기반으로 충분해 recompute 불필요 — drawFrame만(§20.6).
+  document.getElementById("lSlider").addEventListener("input", function () {
+    state.L_mm = parseFloat(this.value);
+    syncLabels();
+    if (state.viewMode === '1to1') drawFrame(); else scheduleRecompute();
+  });
 
   document.getElementById("hSlider").addEventListener("input", function () {
     state.H_mm = parseFloat(this.value);
@@ -771,6 +878,29 @@
   });
 
   bindSlider("ampSlider", "amp", parseFloat, true);
+
+  // 화면 보기 모드(3분할/1:1) + 1:1 모드 필드 선택(§20.7)
+  const viewMode3bandBtn = document.getElementById("viewMode3bandBtn");
+  const viewMode1to1Btn = document.getElementById("viewMode1to1Btn");
+  const viewFieldButtons = document.getElementById("viewFieldButtons");
+  const viewFieldIncBtn = document.getElementById("viewFieldIncBtn");
+  const viewFieldScBtn = document.getElementById("viewFieldScBtn");
+  const viewFieldTotalBtn = document.getElementById("viewFieldTotalBtn");
+  function applyViewModeUI() {
+    viewMode3bandBtn.classList.toggle("active", state.viewMode === '3band');
+    viewMode1to1Btn.classList.toggle("active", state.viewMode === '1to1');
+    viewFieldButtons.style.display = (state.viewMode === '1to1') ? '' : 'none';
+  }
+  viewMode3bandBtn.addEventListener("click", () => { switchViewMode('3band'); applyViewModeUI(); });
+  viewMode1to1Btn.addEventListener("click", () => { switchViewMode('1to1'); applyViewModeUI(); });
+  function applyViewFieldUI() {
+    viewFieldIncBtn.classList.toggle("active", state.viewField === 'inc');
+    viewFieldScBtn.classList.toggle("active", state.viewField === 'sc');
+    viewFieldTotalBtn.classList.toggle("active", state.viewField === 'total');
+  }
+  viewFieldIncBtn.addEventListener("click", () => { state.viewField = 'inc'; applyViewFieldUI(); drawFrame(); });
+  viewFieldScBtn.addEventListener("click", () => { state.viewField = 'sc'; applyViewFieldUI(); drawFrame(); });
+  viewFieldTotalBtn.addEventListener("click", () => { state.viewField = 'total'; applyViewFieldUI(); drawFrame(); });
 
   // 줌 (버튼 + 마우스 휠) — 항상 x=0,y=0 중심, view.zoomFactor 하나를 공유한다.
   const zoomInBtn = document.getElementById("zoomInBtn");
@@ -907,6 +1037,8 @@
   // =====================================================================
   syncActivePhysics();
   applyModeUI();
+  applyViewModeUI();
+  applyViewFieldUI();
   syncLabels();
   window.addEventListener("resize", resize);
   resize();       // layout 확정 + recompute + drawFrame

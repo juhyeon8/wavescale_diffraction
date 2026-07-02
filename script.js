@@ -402,6 +402,7 @@
     const px = layout.bandX + layout.bandW + layout.gap;
     const pw = layout.plotW;
     const L_m = state.L_mm / 1000;
+    const H_m = barHeight_mm(state.N, state.d_mm) / 1000;
 
     // 세로로 샘플링 (위→아래), 최대값으로 가로 스케일
     // §5: 줌과 무관하게 항상 base.Yw(고정 기준 범위) 전체 높이로 그린다 —
@@ -411,11 +412,22 @@
     const M = profile.M;
     const scale = Math.max(2, Math.ceil(profile.Imax));   // 가로 0..scale
 
-    // 축 박스 + 입사 세기=1 기준선
+    // 축 박스
     ctx.save();
     ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
     ctx.strokeRect(px + 0.5, by + 0.5, pw - 1, bh - 1);
-    // 그림자 음영
+
+    // 기하 그림자 구간 음영(|y|<H/2) — 파랑, S̄ 계산 구간과 대응(§19.3)
+    {
+      const halfH = H_m / 2;
+      const geomTop = by + (base.Yw - halfH) / (2 * base.Yw) * bh;
+      const geomBot = by + (base.Yw + halfH) / (2 * base.Yw) * bh;
+      ctx.save();
+      ctx.fillStyle = "rgba(47,111,235,0.10)";
+      ctx.fillRect(px, geomTop, pw, geomBot - geomTop);
+      ctx.restore();
+    }
+    // 어두운 구간 음영(I<0.5)
     if (profile.region) {
       const { lo, hi } = profile.region;
       const syLo = by + (lo / profile.M) * bh;
@@ -425,8 +437,17 @@
       ctx.fillRect(px, syLo, pw, syHi - syLo);
       ctx.restore();
     }
+
     ctx.fillStyle = "#8a8a92"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
     ctx.fillText("전체 높이 기준", px + pw / 2, by + 12);
+
+    // 범례 — 기하 그림자(파랑) vs 어두운 구간(빨강)
+    ctx.font = "9px sans-serif"; ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(47,111,235,0.6)"; ctx.fillRect(px + 4, by + 20, 7, 7);
+    ctx.fillStyle = "#5a5a62"; ctx.fillText("기하(|y|<H/2)", px + 14, by + 27);
+    ctx.fillStyle = "rgba(192,57,43,0.6)"; ctx.fillRect(px + 4, by + 31, 7, 7);
+    ctx.fillStyle = "#5a5a62"; ctx.fillText("어두운(I<0.5)", px + 14, by + 38);
+
     const x1 = px + (1 / scale) * pw;
     ctx.strokeStyle = "#d9d9df"; ctx.setLineDash([2, 3]);
     ctx.beginPath(); ctx.moveTo(x1, by); ctx.lineTo(x1, by + bh); ctx.stroke();
@@ -616,6 +637,8 @@
     const lamHInfo = lamHBadge(lamH);
     const nF = fresnelNumber(H, state.L_mm, state.lam_cm);
     const nFInfo = fresnelBadge(nF);
+    const H_m = H / 1000;
+    const sbar = computeShadowFillRatio(state.L_mm / 1000, H_m);
 
     const modeBadges = (state.mode === 'solid')
       ? `<span class="badge ok">솔리드(자동)</span>` +
@@ -625,6 +648,7 @@
 
     document.getElementById("infoBox").innerHTML =
       `<div class="lamH"><b>λ/H = ${lamH.toFixed(2)}</b> <span class="badge ${lamHInfo.cls}">${lamHInfo.text}</span></div>` +
+      `그림자 채움률 <b>S̄ = ${sbar.toFixed(3)}</b> (기하광학이면 0)<br>` +
       `도선 N = <b>${state.N}</b> · 막대 높이 H = <b>${H.toFixed(1)} mm</b><br>` +
       `파장 λ = <b>${state.lam_cm.toFixed(1)} cm</b> (f ≈ <b>${f_GHz.toFixed(2)} GHz</b>)<br>` +
       `간격 d = <b>${state.d_mm.toFixed(1)} mm</b> · 굵기 a = <b>${state.a_mm.toFixed(2)} mm</b><br>` +

@@ -151,6 +151,101 @@
   }
 
   // =====================================================================
+  // 6. 스크린 y 표본(§27.2: -1.5*(H/2) ~ +1.5*(H/2), 241점)
+  // =====================================================================
+  function sampleYs_mm(H_mm) {
+    const halfRange = 1.5 * (H_mm / 2);
+    const ys = new Float64Array(NUM_POINTS);
+    for (let i = 0; i < NUM_POINTS; i++) {
+      ys[i] = -halfRange + (2 * halfRange) * i / (NUM_POINTS - 1);
+    }
+    return ys;
+  }
+
+  // 한 점에서 입사·산란장 평가 (출처: script.js evalFields — 물리 동일,
+  // 그리드 루프 대신 단일 점 평가로 재구성, §25.1)
+  function evalFieldsAtPoint(wx, wy, k, wiresY, cRe, cIm, aEff_m) {
+    const incRe = Math.cos(k * wx), incIm = Math.sin(k * wx);
+    let sr = 0, si = 0;
+    for (let n = 0; n < wiresY.length; n++) {
+      const dy = wy - wiresY[n];
+      let r = Math.sqrt(wx * wx + dy * dy);
+      if (r < aEff_m) r = aEff_m;
+      const x = k * r;
+      const jr = besselJ0(x), yi = besselY0(x);
+      sr += cRe[n] * jr - cIm[n] * yi;
+      si += cRe[n] * yi + cIm[n] * jr;
+    }
+    return { incRe, incIm, scRe: sr, scIm: si };
+  }
+
+  function screenIntensityAt(L_m, wy, k, wiresY, cRe, cIm, aEff_m) {
+    const f = evalFieldsAtPoint(L_m, wy, k, wiresY, cRe, cIm, aEff_m);
+    const tr = f.incRe + f.scRe, ti = f.incIm + f.scIm;
+    return tr * tr + ti * ti;
+  }
+
+  // 그림자 채움률 S̄(§19 로직 재사용) — 순수 함수
+  function shadowFillRatioFromSamples(samples) {
+    let sum = 0;
+    for (let i = 0; i < samples.length; i++) sum += samples[i];
+    return sum / samples.length;
+  }
+
+  function computeShadowFillRatioMoM(L_m, H_m, k, wiresY, cRe, cIm, aEff_m, samples = 100) {
+    const arr = new Array(samples);
+    for (let s = 0; s < samples; s++) {
+      const wy = -H_m / 2 + (s + 0.5) / samples * H_m;
+      arr[s] = screenIntensityAt(L_m, wy, k, wiresY, cRe, cIm, aEff_m);
+    }
+    return shadowFillRatioFromSamples(arr);
+  }
+
+  // MoM 스크린 곡선 계산 — recompute()(script.js:193~257)와 동일한 행렬 구성(§25.1)
+  function recomputeMoM(H_mm, L_mm, lam_cm) {
+    const t0 = performance.now();
+    const lam_m = lam_cm / 100;
+    const k = TWO_PI / lam_m;
+    const disc = computeDiscretization(H_mm, lam_cm);
+    const N = disc.N;
+    const d_m = disc.d_mm / 1000;
+    const aEff_m = disc.a_mm / 1000;
+
+    const wiresY = new Float64Array(N);
+    for (let n = 0; n < N; n++) wiresY[n] = (n - (N - 1) / 2) * d_m;
+
+    const ZM = new Float64Array(N * N * 2);
+    const b = new Float64Array(N * 2);
+    const Hself = hankel0(k * aEff_m);
+    for (let m = 0; m < N; m++) {
+      b[m * 2] = -1; b[m * 2 + 1] = 0;
+      for (let n = 0; n < N; n++) {
+        const h = (m === n) ? Hself : hankel0(k * Math.abs(wiresY[m] - wiresY[n]));
+        ZM[(m * N + n) * 2] = h.re;
+        ZM[(m * N + n) * 2 + 1] = h.im;
+      }
+    }
+    const c = solveComplex(N, ZM, b);
+    const cRe = new Float64Array(N), cIm = new Float64Array(N);
+    for (let n = 0; n < N; n++) { cRe[n] = c[n * 2]; cIm[n] = c[n * 2 + 1]; }
+
+    const L_m = L_mm / 1000;
+    const H_m = H_mm / 1000;
+    const ys_mm = sampleYs_mm(H_mm);
+    const Iy = new Float64Array(NUM_POINTS);
+    for (let i = 0; i < NUM_POINTS; i++) {
+      Iy[i] = screenIntensityAt(L_m, ys_mm[i] / 1000, k, wiresY, cRe, cIm, aEff_m);
+    }
+    const I0 = screenIntensityAt(L_m, 0, k, wiresY, cRe, cIm, aEff_m);
+    const sbar = computeShadowFillRatioMoM(L_m, H_m, k, wiresY, cRe, cIm, aEff_m);
+
+    const dt = performance.now() - t0;
+    console.log(`[성능] recomputeMoM() N=${N}, ${dt.toFixed(1)} ms`);
+
+    return { ys_mm, Iy, I0, sbar, disc };
+  }
+
+  // =====================================================================
   // 콘솔 자가검증(마지막에 호출)
   // =====================================================================
   function selfCheck() {
@@ -175,6 +270,12 @@
       const r3 = computeDiscretization(100, 12);
       console.assert(r3.N === 18 && !r3.warn,
         "computeDiscretization(100,12cm): 상한 안 걸림, 경고 없음");
+    }
+    {
+      const r = recomputeMoM(200, 300, 1);
+      console.assert(r.sbar >= 0 && r.sbar <= 0.08 + 1e-6,
+        "recomputeMoM(H=200,L=300,λ=1cm): S̄가 0.08 이하(§28.1 기준4, 이산화 누설 없음)");
+      console.log("[검증] recomputeMoM 기본 케이스 S̄=", r.sbar.toFixed(4), "I0=", r.I0.toFixed(4));
     }
   }
 

@@ -1035,8 +1035,23 @@
   }
 
   // =====================================================================
+  // 10. URL 파라미터 초기화 (허브 연동, §30)
+  // =====================================================================
+  function applyUrlParams() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('mode') === 'solid') state.mode = 'solid';
+    if (p.has('H')) state.H_mm = parseFloat(p.get('H'));
+    if (p.has('L')) state.L_mm = parseFloat(p.get('L'));
+    if (p.has('lam')) state.lam_cm = parseFloat(p.get('lam'));
+    document.getElementById("hSlider").value = state.H_mm;
+    document.getElementById("lSlider").value = state.L_mm;
+    document.getElementById("lamSlider").value = state.lam_cm;
+  }
+
+  // =====================================================================
   // 시작
   // =====================================================================
+  applyUrlParams();
   syncActivePhysics();
   applyModeUI();
   applyViewModeUI();

@@ -527,6 +527,13 @@
     syncLabels();
   }
 
+  function applyUrlParams() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.has('H')) state.H_mm = parseFloat(p.get('H'));
+    if (p.has('L')) state.L_mm = parseFloat(p.get('L'));
+    if (p.has('lam')) state.lam_cm = parseFloat(p.get('lam'));
+  }
+
   el.hSlider.addEventListener("input", function () {
     state.H_mm = parseFloat(this.value);
     syncLabels();
@@ -563,6 +570,7 @@
   // =====================================================================
   // 시작
   // =====================================================================
+  applyUrlParams();
   setSlidersFromState();
   selfCheck();
   recomputeBoth();

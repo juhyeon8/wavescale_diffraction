@@ -142,7 +142,10 @@
   // =====================================================================
   function computeDiscretization(H_mm, lam_cm) {
     const lam_mm = lam_cm * 10;
-    const d_target_mm = lam_mm / 20;
+    // §26.1 정정: d_target=λ/20 단독으로는 λ가 클 때(예 λ=3cm) 잔여 이산화
+    // 누설이 S̄를 과대평가함(수렴 기준값은 d=1mm/λ30에서 실측). 1mm 상한을
+    // 추가로 걸어 λ가 커져도 격자가 과도하게 성겨지지 않게 함.
+    const d_target_mm = Math.min(1, lam_mm / 20);
     const N = Math.min(400, Math.max(2, Math.ceil(H_mm / d_target_mm) + 1));
     const d_mm = H_mm / (N - 1);
     const a_mm = d_mm / 2;
@@ -151,10 +154,12 @@
   }
 
   // =====================================================================
-  // 6. 스크린 y 표본(§27.2: -1.5*(H/2) ~ +1.5*(H/2), 241점)
+  // 6. 스크린 y 표본(§27.2: -2.0*(H/2) ~ +2.0*(H/2), 241점 — acceptance 기준 1의
+  //    첫 밝은 무늬(y≈160mm, H=200mm 기준)가 화면에서 직접 확인 가능해야 하므로
+  //    ±1.5에서 확대)
   // =====================================================================
   function sampleYs_mm(H_mm) {
-    const halfRange = 1.5 * (H_mm / 2);
+    const halfRange = 2.0 * (H_mm / 2);
     const ys = new Float64Array(NUM_POINTS);
     for (let i = 0; i < NUM_POINTS; i++) {
       ys[i] = -halfRange + (2 * halfRange) * i / (NUM_POINTS - 1);
@@ -298,7 +303,7 @@
 
     const m = { left: 46, right: 16, top: 16, bottom: 30 };
     const plotW = w - m.left - m.right, plotH = h - m.top - m.bottom;
-    const halfRange = 0.75 * H_mm;   // 1.5*(H/2)
+    const halfRange = 1.0 * H_mm;   // 2.0*(H/2) — sampleYs_mm과 동일 범위 유지
     let Imax = 2;
     for (let i = 0; i < mom.Iy.length; i++) Imax = Math.max(Imax, mom.Iy[i], huy.Iy[i]);
     Imax = Math.ceil(Imax);
@@ -471,9 +476,10 @@
       const r2 = computeDiscretization(300, 1);
       console.assert(r2.N === 400 && r2.warn,
         "computeDiscretization(300,1cm): N=400 상한, 공차 밖이라 경고 있음");
-      // H=100,λ=12cm → d_target=6mm, ceil(100/6)+1=18, 상한 안 걸림 → 경고 없음
+      // H=100,λ=12cm → d_target=min(1,6)=1mm(§26.1 정정), ceil(100/1)+1=101,
+      // 상한(400) 안 걸림 → 경고 없음
       const r3 = computeDiscretization(100, 12);
-      console.assert(r3.N === 18 && !r3.warn,
+      console.assert(r3.N === 101 && !r3.warn,
         "computeDiscretization(100,12cm): 상한 안 걸림, 경고 없음");
     }
     {

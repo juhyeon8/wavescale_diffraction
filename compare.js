@@ -138,6 +138,19 @@
   const REF_INTENSITY = 2;  // 장애물 없는 평면파 기준 세기(정규화용), huygens와 동일
 
   // =====================================================================
+  // 5. 이산화 전략(§26) — 순수 함수, selfCheck()에서 단언
+  // =====================================================================
+  function computeDiscretization(H_mm, lam_cm) {
+    const lam_mm = lam_cm * 10;
+    const d_target_mm = lam_mm / 20;
+    const N = Math.min(400, Math.max(2, Math.ceil(H_mm / d_target_mm) + 1));
+    const d_mm = H_mm / (N - 1);
+    const a_mm = d_mm / 2;
+    const warn = d_mm > 1.05 * d_target_mm;
+    return { N, d_mm, a_mm, d_target_mm, warn };
+  }
+
+  // =====================================================================
   // 콘솔 자가검증(마지막에 호출)
   // =====================================================================
   function selfCheck() {
@@ -147,6 +160,21 @@
       // 장애물 없음(obstacleOn=false) → 세기 = (1²+1²)/REF_INTENSITY = 1
       const I = fresnelIntensity(0, 0.01, 0.2, 0.3, false) / REF_INTENSITY;
       console.assert(Math.abs(I - 1) < 1e-9, "장애물 없음 세기=1 (정규화 기준)");
+    }
+    {
+      // §26.1: 대표 프리셋 "깊은 그림자"(H=200,λ=1cm) → N=400 상한 걸리지만
+      // d=λ/19.95로 공차(1.05배) 안쪽 — 경고 없어야 함(오탐 방지가 이 공차의 목적)
+      const r1 = computeDiscretization(200, 1);
+      console.assert(r1.N === 400 && !r1.warn,
+        "computeDiscretization(200,1cm): N=400 상한, 공차 안쪽이라 경고 없음");
+      // H=300,λ=1cm → d=300/399=0.752mm, d_target=0.5mm, 비율 1.5 > 1.05 → 경고
+      const r2 = computeDiscretization(300, 1);
+      console.assert(r2.N === 400 && r2.warn,
+        "computeDiscretization(300,1cm): N=400 상한, 공차 밖이라 경고 있음");
+      // H=100,λ=12cm → d_target=6mm, ceil(100/6)+1=18, 상한 안 걸림 → 경고 없음
+      const r3 = computeDiscretization(100, 12);
+      console.assert(r3.N === 18 && !r3.warn,
+        "computeDiscretization(100,12cm): 상한 안 걸림, 경고 없음");
     }
   }
 

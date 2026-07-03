@@ -386,6 +386,71 @@
   }
 
   // =====================================================================
+  // 9. λ 스윕 — 진행률 표시 + S̄ vs λ 로그축 차트(§27.4)
+  // =====================================================================
+  function logSpace(minV, maxV, n) {
+    const arr = new Array(n);
+    const logMin = Math.log10(minV), logMax = Math.log10(maxV);
+    for (let i = 0; i < n; i++) arr[i] = Math.pow(10, logMin + (logMax - logMin) * i / (n - 1));
+    return arr;
+  }
+
+  function drawSweepChart(lambdas, sMoM, sHuy) {
+    const canvas = el.sweepCanvas;
+    const { w, h } = resizeCanvas(canvas);
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, w, h);
+
+    const m = { left: 50, right: 16, top: 16, bottom: 30 };
+    const plotW = w - m.left - m.right, plotH = h - m.top - m.bottom;
+    const logMin = Math.log10(1), logMax = Math.log10(30);
+    let Smax = 0.05;
+    for (let i = 0; i < sMoM.length; i++) Smax = Math.max(Smax, sMoM[i], sHuy[i]);
+    const px = (lam) => m.left + (Math.log10(lam) - logMin) / (logMax - logMin) * plotW;
+    const py = (s) => m.top + (1 - s / Smax) * plotH;
+
+    ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
+    ctx.strokeRect(m.left + 0.5, m.top + 0.5, plotW - 1, plotH - 1);
+
+    function drawCurve(color, dash, values) {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.8;
+      if (dash) ctx.setLineDash(dash);
+      ctx.beginPath();
+      for (let i = 0; i < lambdas.length; i++) {
+        const x = px(lambdas[i]), y = py(values[i]);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    drawCurve("#2f6feb", null, sMoM);
+    drawCurve("#c0392b", [5, 4], sHuy);
+
+    ctx.fillStyle = "#5a5a62"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("파장 λ (cm, 로그축)", m.left + plotW / 2, h - 4);
+    ctx.textAlign = "left"; ctx.fillText("1", m.left, h - 16);
+    ctx.textAlign = "right"; ctx.fillText("30", m.left + plotW, h - 16);
+    ctx.save(); ctx.translate(14, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center"; ctx.fillText("S̄ (파랑=MoM, 빨강=Huygens)", 0, 0); ctx.restore();
+  }
+
+  async function runSweep() {
+    const lambdas = logSpace(1, 30, 10);
+    const sMoM = [], sHuy = [];
+    el.sweepPanel.classList.add("show");
+    for (let i = 0; i < lambdas.length; i++) {
+      el.sweepProgress.textContent = `진행 중... (${i + 1}/${lambdas.length}, λ=${lambdas[i].toFixed(2)}cm)`;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const mom = recomputeMoM(state.H_mm, state.L_mm, lambdas[i]);
+      const huy = recomputeHuygens(state.H_mm, state.L_mm, lambdas[i]);
+      sMoM.push(mom.sbar); sHuy.push(huy.sbar);
+    }
+    el.sweepProgress.textContent = `완료 (H=${state.H_mm}mm, L=${state.L_mm}mm 기준, λ=1~30cm 10점)`;
+    drawSweepChart(lambdas, sMoM, sHuy);
+    recomputeBoth();   // 스윕 중 state.H/L/λ는 안 바뀌지만, 메인 플롯 λ 슬라이더 값 기준으로 재동기화
+  }
+
+  // =====================================================================
   // 콘솔 자가검증(마지막에 호출)
   // =====================================================================
   function selfCheck() {
@@ -484,6 +549,8 @@
       recomputeBoth();
     });
   });
+
+  el.sweepBtn.addEventListener("click", () => { runSweep(); });
 
   window.addEventListener("resize", () => { drawMainPlot === undefined || recomputeBoth(); });
 

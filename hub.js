@@ -95,6 +95,37 @@
     try { win.dispatchEvent(new Event("resize")); } catch (e) { /* 동일 출처가 아니면 무시 */ }
   }
 
+  // =====================================================================
+  // ③ 나란히 보기 — 하위헌스 쪽 그래프 패널(#panel-main) 먼저 보이기(§30.7).
+  // huygens/style.css의 980px 이하 세로 스택 레이아웃 때문에 절반 폭에서는
+  // 헤더·슬라이더가 먼저 보이고 그래프는 스크롤해야 보인다.
+  //
+  // 방식: postMessage. iframe.contentDocument로 직접 접근하는 방식은
+  // Chrome이 file://을 파일마다 별도의 불투명(opaque) 출처로 취급해
+  // 실패한다(실측: contentDocument는 null, dispatchEvent/location 접근은
+  // SecurityError — 같은 폴더라도 "동일 출처"가 아니다). URL 해시(#panel-main)
+  // + 첫 진입 시 강제 리로드안도 검토했으나, §30.2의 "탭 전환은 리로드를
+  // 유발하지 않는다" 불변식을 깨고 ①에서의 조작 상태를 파괴하므로 기각했다.
+  // postMessage는 opaque 출처 간에도 항상 허용되는 예외적 API라 리로드 없이
+  // 안전하게 전달할 수 있다.
+  //
+  // 로드(최초 + 리로드) 직후 딱 한 번만 스크롤하고, 사용자가 직접 스크롤한
+  // 위치는 탭 전환으로 되돌리지 않는다(플래그가 꺼져 있으면 아무 것도 하지
+  // 않음).
+  // =====================================================================
+  let needsScrollHuygens = false;
+  function maybeScrollHuygens() {
+    if (currentTab !== "side" || !needsScrollHuygens) return;
+    try {
+      el.huygensFrame.contentWindow.postMessage("scrollToPanelMain", "*");
+    } catch (e) { /* 접근 실패 시 조용히 무시 */ }
+    needsScrollHuygens = false;
+  }
+  el.huygensFrame.addEventListener("load", () => {
+    needsScrollHuygens = true;
+    maybeScrollHuygens();
+  });
+
   let currentTab = "huygens";
   function applyTab(tab) {
     currentTab = tab;
@@ -119,6 +150,7 @@
         if (tab === "metal" || tab === "side") dispatchResize(el.metalFrame.contentWindow);
         if (tab === "huygens" || tab === "side") dispatchResize(el.huygensFrame.contentWindow);
       }
+      if (tab === "side") maybeScrollHuygens();
     });
   }
   el.tabBtns.forEach((btn) => btn.addEventListener("click", () => applyTab(btn.dataset.tab)));

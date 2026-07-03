@@ -878,3 +878,16 @@ function init() {
 }
 
 init();
+
+/* =========================================================================
+   허브(hub.html) 연동 — ③ 나란히 보기에서 그래프 패널을 먼저 보여주기 위한
+   최소 메시지 리스너. 메시지가 없으면 기존 동작과 완전히 동일하다.
+   ========================================================================= */
+window.addEventListener('message', (e) => {
+  try {
+    if (e.data === 'scrollToPanelMain') {
+      const panel = document.getElementById('panel-main');
+      if (panel) panel.scrollIntoView({ block: 'start' });
+    }
+  } catch (err) { /* 조용히 무시 */ }
+});

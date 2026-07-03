@@ -245,6 +245,33 @@
     return { ys_mm, Iy, I0, sbar, disc };
   }
 
+  // 하위헌스 스크린 곡선 계산 — a(장애물 폭)에 H(전체 폭)를 그대로 전달(§25.2:
+  // 두 모형의 H/a는 기하학적으로 같은 양, computeSolidWireLayout이 확인)
+  function computeShadowFillRatioHuygens(lam_m, a_m, z_m, H_m, samples = 100) {
+    const arr = new Array(samples);
+    for (let s = 0; s < samples; s++) {
+      const wy = -H_m / 2 + (s + 0.5) / samples * H_m;
+      arr[s] = fresnelIntensity(wy, lam_m, a_m, z_m, true) / REF_INTENSITY;
+    }
+    return shadowFillRatioFromSamples(arr);
+  }
+
+  function recomputeHuygens(H_mm, L_mm, lam_cm) {
+    const lam_m = lam_cm / 100;
+    const a_m = H_mm / 1000;
+    const z_m = L_mm / 1000;
+    const H_m = H_mm / 1000;
+    const ys_mm = sampleYs_mm(H_mm);
+    const Iy = new Float64Array(NUM_POINTS);
+    for (let i = 0; i < NUM_POINTS; i++) {
+      const Y_m = ys_mm[i] / 1000;
+      Iy[i] = fresnelIntensity(Y_m, lam_m, a_m, z_m, true) / REF_INTENSITY;
+    }
+    const I0 = fresnelIntensity(0, lam_m, a_m, z_m, true) / REF_INTENSITY;
+    const sbar = computeShadowFillRatioHuygens(lam_m, a_m, z_m, H_m);
+    return { ys_mm, Iy, I0, sbar };
+  }
+
   // =====================================================================
   // 콘솔 자가검증(마지막에 호출)
   // =====================================================================
@@ -276,6 +303,12 @@
       console.assert(r.sbar >= 0 && r.sbar <= 0.08 + 1e-6,
         "recomputeMoM(H=200,L=300,λ=1cm): S̄가 0.08 이하(§28.1 기준4, 이산화 누설 없음)");
       console.log("[검증] recomputeMoM 기본 케이스 S̄=", r.sbar.toFixed(4), "I0=", r.I0.toFixed(4));
+    }
+    {
+      const r = recomputeHuygens(200, 300, 1);
+      console.assert(Math.abs(r.sbar - 0.057) < 0.01,
+        "recomputeHuygens(H=200,L=300,λ=1cm): S̄≈0.057(§26.2 수렴표 해석식 기준)");
+      console.log("[검증] recomputeHuygens 기본 케이스 S̄=", r.sbar.toFixed(4), "I0=", r.I0.toFixed(4));
     }
   }
 

@@ -98,11 +98,56 @@
   }
 
   // =====================================================================
+  // 4. 프레넬 회절 적분 (출처: huygens/script.js, 문자 그대로 이식)
+  // =====================================================================
+  function fresnelCS(v) {
+    const x = Math.abs(v);
+    const x2 = x * x;
+    const f = (1 + 0.926 * x) / (2 + 1.792 * x + 3.104 * x2);
+    const g = 1 / (2 + 4.142 * x + 3.492 * x2 + 6.670 * x2 * x);
+    const phase = Math.PI * x2 / 2;
+    const s = Math.sin(phase), c = Math.cos(phase);
+    let C = 0.5 + f * s - g * c;
+    let S = 0.5 - f * c - g * s;
+    if (v < 0) { C = -C; S = -S; }
+    return [C, S];
+  }
+
+  function kFactor(lambda, zDist) { return Math.sqrt(2 / (lambda * zDist)); }
+
+  function totalAmplitude(Y, lambda, a, zDist, obstacleOn) {
+    if (!obstacleOn) {
+      return { re: 1, im: 1 };
+    }
+    const k = kFactor(lambda, zDist);
+    const vLow = (-a / 2 - Y) * k;
+    const vHigh = (a / 2 - Y) * k;
+    const [Clow, Slow] = fresnelCS(vLow);
+    const [Chigh, Shigh] = fresnelCS(vHigh);
+    return {
+      re: (Clow + 0.5) + (0.5 - Chigh),
+      im: (Slow + 0.5) + (0.5 - Shigh),
+    };
+  }
+
+  function fresnelIntensity(Y, lambda, a, zDist, obstacleOn) {
+    const t = totalAmplitude(Y, lambda, a, zDist, obstacleOn);
+    return t.re * t.re + t.im * t.im;
+  }
+
+  const REF_INTENSITY = 2;  // 장애물 없는 평면파 기준 세기(정규화용), huygens와 동일
+
+  // =====================================================================
   // 콘솔 자가검증(마지막에 호출)
   // =====================================================================
   function selfCheck() {
     console.log("[검증] J0(1)=", besselJ0(1).toFixed(6), "(기대 0.765198)");
     console.log("[검증] Y0(1)=", besselY0(1).toFixed(6), "(기대 0.088257)");
+    {
+      // 장애물 없음(obstacleOn=false) → 세기 = (1²+1²)/REF_INTENSITY = 1
+      const I = fresnelIntensity(0, 0.01, 0.2, 0.3, false) / REF_INTENSITY;
+      console.assert(Math.abs(I - 1) < 1e-9, "장애물 없음 세기=1 (정규화 기준)");
+    }
   }
 
   // =====================================================================

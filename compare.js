@@ -369,6 +369,23 @@
   }
 
   // =====================================================================
+  // 8. 상태 흐름 — H/L/λ 슬라이더는 같은 디바운스 안에서 두 모형을 함께 갱신(§27.4)
+  // =====================================================================
+  function recomputeBoth() {
+    const mom = recomputeMoM(state.H_mm, state.L_mm, state.lam_cm);
+    const huy = recomputeHuygens(state.H_mm, state.L_mm, state.lam_cm);
+    drawMainPlot(mom, huy, state.H_mm);
+    updateInfoBox(mom, huy, state.H_mm, state.L_mm, state.lam_cm);
+    return { mom, huy };
+  }
+
+  let recomputeTimer = null;
+  function scheduleRecompute() {
+    if (recomputeTimer) clearTimeout(recomputeTimer);
+    recomputeTimer = setTimeout(recomputeBoth, 200);
+  }
+
+  // =====================================================================
   // 콘솔 자가검증(마지막에 호출)
   // =====================================================================
   function selfCheck() {
@@ -439,15 +456,41 @@
     syncLabels();
   }
 
+  el.hSlider.addEventListener("input", function () {
+    state.H_mm = parseFloat(this.value);
+    syncLabels();
+    scheduleRecompute();
+  });
+  el.lSlider.addEventListener("input", function () {
+    state.L_mm = parseFloat(this.value);
+    syncLabels();
+    scheduleRecompute();
+  });
+  el.lamSlider.addEventListener("input", function () {
+    state.lam_cm = parseFloat(this.value);
+    syncLabels();
+    scheduleRecompute();
+  });
+
+  const PRESETS = {
+    preset1Btn: { lam_cm: 1 },
+    preset2Btn: { lam_cm: 4 },
+    preset3Btn: { lam_cm: 20 },
+  };
+  Object.keys(PRESETS).forEach((id) => {
+    el[id].addEventListener("click", () => {
+      state.H_mm = 200; state.L_mm = 300; state.lam_cm = PRESETS[id].lam_cm;
+      setSlidersFromState();
+      recomputeBoth();
+    });
+  });
+
+  window.addEventListener("resize", () => { drawMainPlot === undefined || recomputeBoth(); });
+
   // =====================================================================
   // 시작
   // =====================================================================
   setSlidersFromState();
   selfCheck();
-  {
-    const mom = recomputeMoM(state.H_mm, state.L_mm, state.lam_cm);
-    const huy = recomputeHuygens(state.H_mm, state.L_mm, state.lam_cm);
-    drawMainPlot(mom, huy, state.H_mm);
-    updateInfoBox(mom, huy, state.H_mm, state.L_mm, state.lam_cm);
-  }
+  recomputeBoth();
 })();

@@ -273,6 +273,102 @@
   }
 
   // =====================================================================
+  // 7. Fresnel 수 + 렌더링
+  // =====================================================================
+  function fresnelNumber(H_mm, L_mm, lam_cm) {
+    const lam_mm = lam_cm * 10;
+    return Math.pow(H_mm / 2, 2) / (L_mm * lam_mm);
+  }
+
+  function resizeCanvas(canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: rect.width, h: rect.height };
+  }
+
+  function drawMainPlot(mom, huy, H_mm) {
+    const canvas = el.mainCanvas;
+    const { w, h } = resizeCanvas(canvas);
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, w, h);
+
+    const m = { left: 46, right: 16, top: 16, bottom: 30 };
+    const plotW = w - m.left - m.right, plotH = h - m.top - m.bottom;
+    const halfRange = 0.75 * H_mm;   // 1.5*(H/2)
+    let Imax = 2;
+    for (let i = 0; i < mom.Iy.length; i++) Imax = Math.max(Imax, mom.Iy[i], huy.Iy[i]);
+    Imax = Math.ceil(Imax);
+    const px = (y_mm) => m.left + (y_mm + halfRange) / (2 * halfRange) * plotW;
+    const py = (I) => m.top + (1 - I / Imax) * plotH;
+
+    ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
+    ctx.strokeRect(m.left + 0.5, m.top + 0.5, plotW - 1, plotH - 1);
+
+    // 기하 그림자 음영 |y|<=H/2(§27.2)
+    const shadeX0 = px(-H_mm / 2), shadeX1 = px(H_mm / 2);
+    ctx.fillStyle = "rgba(120,120,128,0.12)";
+    ctx.fillRect(shadeX0, m.top, shadeX1 - shadeX0, plotH);
+
+    // 입사=1 기준선
+    ctx.strokeStyle = "#aab2cf"; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(m.left, py(1)); ctx.lineTo(m.left + plotW, py(1)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // MoM 곡선(파랑 실선)
+    ctx.strokeStyle = "#2f6feb"; ctx.lineWidth = 1.8; ctx.beginPath();
+    for (let i = 0; i < mom.ys_mm.length; i++) {
+      const x = px(mom.ys_mm[i]), y = py(mom.Iy[i]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // 하위헌스 곡선(빨강 점선)
+    ctx.strokeStyle = "#c0392b"; ctx.lineWidth = 1.8; ctx.setLineDash([5, 4]); ctx.beginPath();
+    for (let i = 0; i < huy.ys_mm.length; i++) {
+      const x = px(huy.ys_mm[i]), y = py(huy.Iy[i]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 축 라벨
+    ctx.fillStyle = "#5a5a62"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("스크린 위치 y (mm)", m.left + plotW / 2, h - 4);
+    ctx.save(); ctx.translate(12, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText("I / I₀(입사)", 0, 0); ctx.restore();
+    ctx.textAlign = "left"; ctx.fillText((-halfRange).toFixed(0), m.left, h - 16);
+    ctx.textAlign = "right"; ctx.fillText(halfRange.toFixed(0), m.left + plotW, h - 16);
+    ctx.textAlign = "left"; ctx.fillText(Imax.toFixed(0), 4, m.top + 10);
+
+    // 범례
+    ctx.font = "11px sans-serif"; ctx.textAlign = "left";
+    ctx.strokeStyle = "#2f6feb"; ctx.setLineDash([]); ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(m.left + 10, m.top + 14); ctx.lineTo(m.left + 30, m.top + 14); ctx.stroke();
+    ctx.fillStyle = "#333"; ctx.fillText("MoM(금속 막대)", m.left + 34, m.top + 18);
+    ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(m.left + 10, m.top + 30); ctx.lineTo(m.left + 30, m.top + 30); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText("Huygens(프레넬)", m.left + 34, m.top + 34);
+  }
+
+  function updateInfoBox(mom, huy, H_mm, L_mm, lam_cm) {
+    const nF = fresnelNumber(H_mm, L_mm, lam_cm);
+    const diffPct = Math.abs(mom.sbar - huy.sbar) / Math.max(huy.sbar, 1e-9) * 100;
+    const warnBadge = mom.disc.warn
+      ? ` <span class="badge warn">⚠ N=${mom.disc.N} 상한, d=λ/${(lam_cm * 10 / mom.disc.d_mm).toFixed(1)} (목표 λ/20 미달)</span>`
+      : "";
+    el.infoBox.innerHTML =
+      `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span style="font-size:11px;color:#6b6b72">(하위헌스 앱의 a²/(λz)는 이 값의 4배)</span><br>` +
+      `I₀ — MoM <b>${mom.I0.toFixed(3)}</b> · Huygens <b>${huy.I0.toFixed(3)}</b> (입사=1.000)<br>` +
+      `S̄ — MoM <b>${mom.sbar.toFixed(3)}</b> · Huygens <b>${huy.sbar.toFixed(3)}</b><br>` +
+      `S̄ 상대 차이 <b>${diffPct.toFixed(1)}%</b>` + warnBadge;
+  }
+
+  // =====================================================================
   // 콘솔 자가검증(마지막에 호출)
   // =====================================================================
   function selfCheck() {
@@ -348,4 +444,10 @@
   // =====================================================================
   setSlidersFromState();
   selfCheck();
+  {
+    const mom = recomputeMoM(state.H_mm, state.L_mm, state.lam_cm);
+    const huy = recomputeHuygens(state.H_mm, state.L_mm, state.lam_cm);
+    drawMainPlot(mom, huy, state.H_mm);
+    updateInfoBox(mom, huy, state.H_mm, state.L_mm, state.lam_cm);
+  }
 })();

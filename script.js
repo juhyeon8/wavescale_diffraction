@@ -1022,7 +1022,8 @@
       console.assert(Math.abs(I0 - 1) < 1e-9, "무장애물 스크린 세기=1");
       console.log("[검증] 무장애물 세기 I0=", I0.toFixed(6));
     }
-    recompute();
+    // recompute()는 이 함수 호출 직전 resize()가 이미 같은 state로 실행했으므로
+    // 여기서 다시 부르지 않는다(§30.10 — 로드당 recompute 1회).
     console.assert(Math.abs(screenIntensity(state.L_mm / 1000, 0) - 1) < 0.2 || state.N >= 2,
       "screenIntensity 정의됨");
     console.log("[검증] screenIntensity(중심)=", screenIntensity(state.L_mm / 1000, 0).toFixed(3));
@@ -1043,6 +1044,7 @@
     if (p.has('H')) state.H_mm = parseFloat(p.get('H'));
     if (p.has('L')) state.L_mm = parseFloat(p.get('L'));
     if (p.has('lam')) state.lam_cm = parseFloat(p.get('lam'));
+    if (p.has('gridW')) layout.gridW = Math.min(900, Math.max(400, parseFloat(p.get('gridW'))));
     document.getElementById("hSlider").value = state.H_mm;
     document.getElementById("lSlider").value = state.L_mm;
     document.getElementById("lamSlider").value = state.lam_cm;
@@ -1058,10 +1060,8 @@
   applyViewFieldUI();
   syncLabels();
   window.addEventListener("resize", resize);
-  resize();       // layout 확정 + recompute + drawFrame
-  selfCheck();    // 베셀 검증
-  recompute();    // 상태 재계산
-  drawFrame();
+  resize();       // layout 확정 + recompute + drawFrame (로드당 recompute 1회, §30.10)
+  selfCheck();    // 베셀 검증 — resize()가 이미 계산한 state를 그대로 단언
   requestAnimationFrame(loop);
 
   // =====================================================================

@@ -43,11 +43,34 @@
     el.mH.value = state.H_mm; el.mL.value = state.L_mm; el.mLam.value = state.lam_cm;
     syncMasterLabels();
   }
+  // 보이는 iframe에만 즉시 전송하고, 숨은 iframe은 dirty로만 표시해 두었다가
+  // 그 탭이 실제로 보이게 될 때 1회만 밀린 값을 전송한다(§30.11) — 숨은 화면까지
+  // 매번 재계산시키지 않기 위함.
+  const dirty = { metal: false, huygens: false, compare: false };
+  const frames = { metal: el.metalFrame, huygens: el.huygensFrame, compare: el.compareFrame };
+  function isFrameVisible(name) {
+    if (name === "compare") return currentTab === "compare";
+    if (name === "metal") return currentTab === "metal" || currentTab === "side";
+    if (name === "huygens") return currentTab === "huygens" || currentTab === "side";
+    return false;
+  }
+  function sendSetParamsTo(name) {
+    const msg = { type: "diffhub-setParams", H_mm: state.H_mm, L_mm: state.L_mm, lam_cm: state.lam_cm };
+    try { frames[name].contentWindow.postMessage(msg, "*"); } catch (e) { /* 동일 출처가 아니면 무시 */ }
+  }
   let paramSyncTimer = null;
   function sendSetParams() {
-    const msg = { type: "diffhub-setParams", H_mm: state.H_mm, L_mm: state.L_mm, lam_cm: state.lam_cm };
-    [el.metalFrame, el.huygensFrame, el.compareFrame].forEach((frame) => {
-      try { frame.contentWindow.postMessage(msg, "*"); } catch (e) { /* 동일 출처가 아니면 무시 */ }
+    Object.keys(frames).forEach((name) => {
+      if (isFrameVisible(name)) sendSetParamsTo(name);
+      else dirty[name] = true;
+    });
+  }
+  function flushDirtyFrames() {
+    Object.keys(frames).forEach((name) => {
+      if (dirty[name] && isFrameVisible(name)) {
+        sendSetParamsTo(name);
+        dirty[name] = false;
+      }
     });
   }
   function scheduleParamSync() {
@@ -58,11 +81,30 @@
   el.mL.addEventListener("input", function () { state.L_mm = parseFloat(this.value); syncMasterLabels(); scheduleParamSync(); });
   el.mLam.addEventListener("input", function () { state.lam_cm = parseFloat(this.value); syncMasterLabels(); scheduleParamSync(); });
 
-  function reloadAll() {
+  // 순차 리로드(§30.11) — 세 iframe을 동시에 리로드하면 무거운 금속 앱
+  // recompute가 메인 스레드를 독점해 전체 UI가 수 초간 멈춘 것처럼 보인다.
+  // 하위헌스 → 금속 → 비교 순으로 한 번에 하나씩, 각 load 완료를 기다려
+  // 진행하고 버튼에 "초기화 중…" 표시 + 중복 클릭을 막는다.
+  function loadFrame(frame, src) {
+    return new Promise((resolve) => {
+      frame.addEventListener("load", resolve, { once: true });
+      frame.src = src;
+    });
+  }
+  async function reloadAll() {
+    if (el.applyBtn.disabled) return;
+    const originalLabel = el.applyBtn.textContent;
+    el.applyBtn.disabled = true;
+    el.applyBtn.textContent = "초기화 중…";
+    dirty.metal = false; dirty.huygens = false; dirty.compare = false;
+
     const H = state.H_mm, L = state.L_mm, lam = state.lam_cm;
-    el.metalFrame.src = `./index.html?mode=solid&H=${H}&L=${L}&lam=${lam}`;
-    el.huygensFrame.src = `./huygens/index.html?lambda=${lam / 100}&a=${H / 1000}&z=${L / 1000}&lockScale=1`;
-    el.compareFrame.src = `./compare.html?H=${H}&L=${L}&lam=${lam}`;
+    await loadFrame(el.huygensFrame, `./huygens/index.html?lambda=${lam / 100}&a=${H / 1000}&z=${L / 1000}&lockScale=1`);
+    await loadFrame(el.metalFrame, `./index.html?mode=solid&H=${H}&L=${L}&lam=${lam}&gridW=600`);
+    await loadFrame(el.compareFrame, `./compare.html?H=${H}&L=${L}&lam=${lam}`);
+
+    el.applyBtn.disabled = false;
+    el.applyBtn.textContent = originalLabel;
   }
   el.applyBtn.addEventListener("click", reloadAll);
 
@@ -141,6 +183,7 @@
   let currentTab = "huygens";
   function applyTab(tab) {
     currentTab = tab;
+    flushDirtyFrames();
     el.tabBtns.forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
 
     const showCompare = (tab === "compare");

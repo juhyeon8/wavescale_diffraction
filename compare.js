@@ -574,4 +574,18 @@
   setSlidersFromState();
   selfCheck();
   recomputeBoth();
+
+  // =====================================================================
+  // 허브(hub.html) 연동 — 리로드 없이 파라미터만 갱신(§30.8)
+  // =====================================================================
+  window.addEventListener("message", function (e) {
+    try {
+      if (!e.data || e.data.type !== "diffhub-setParams") return;
+      state.H_mm = e.data.H_mm;
+      state.L_mm = e.data.L_mm;
+      state.lam_cm = e.data.lam_cm;
+      setSlidersFromState();
+      scheduleRecompute();
+    } catch (err) { /* 조용히 무시 */ }
+  });
 })();

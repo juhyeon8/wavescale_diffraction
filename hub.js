@@ -43,14 +43,25 @@
     el.mH.value = state.H_mm; el.mL.value = state.L_mm; el.mLam.value = state.lam_cm;
     syncMasterLabels();
   }
-  el.mH.addEventListener("input", function () { state.H_mm = parseFloat(this.value); syncMasterLabels(); });
-  el.mL.addEventListener("input", function () { state.L_mm = parseFloat(this.value); syncMasterLabels(); });
-  el.mLam.addEventListener("input", function () { state.lam_cm = parseFloat(this.value); syncMasterLabels(); });
+  let paramSyncTimer = null;
+  function sendSetParams() {
+    const msg = { type: "diffhub-setParams", H_mm: state.H_mm, L_mm: state.L_mm, lam_cm: state.lam_cm };
+    [el.metalFrame, el.huygensFrame, el.compareFrame].forEach((frame) => {
+      try { frame.contentWindow.postMessage(msg, "*"); } catch (e) { /* 동일 출처가 아니면 무시 */ }
+    });
+  }
+  function scheduleParamSync() {
+    if (paramSyncTimer) clearTimeout(paramSyncTimer);
+    paramSyncTimer = setTimeout(sendSetParams, 300);
+  }
+  el.mH.addEventListener("input", function () { state.H_mm = parseFloat(this.value); syncMasterLabels(); scheduleParamSync(); });
+  el.mL.addEventListener("input", function () { state.L_mm = parseFloat(this.value); syncMasterLabels(); scheduleParamSync(); });
+  el.mLam.addEventListener("input", function () { state.lam_cm = parseFloat(this.value); syncMasterLabels(); scheduleParamSync(); });
 
   function reloadAll() {
     const H = state.H_mm, L = state.L_mm, lam = state.lam_cm;
     el.metalFrame.src = `./index.html?mode=solid&H=${H}&L=${L}&lam=${lam}`;
-    el.huygensFrame.src = `./huygens/index.html?lambda=${lam / 100}&a=${H / 1000}&z=${L / 1000}`;
+    el.huygensFrame.src = `./huygens/index.html?lambda=${lam / 100}&a=${H / 1000}&z=${L / 1000}&lockScale=1`;
     el.compareFrame.src = `./compare.html?H=${H}&L=${L}&lam=${lam}`;
   }
   el.applyBtn.addEventListener("click", reloadAll);
@@ -60,7 +71,8 @@
     el[id].addEventListener("click", () => {
       state.H_mm = 200; state.L_mm = 300; state.lam_cm = PRESETS[id];
       syncMasterSliders();
-      reloadAll();
+      if (paramSyncTimer) clearTimeout(paramSyncTimer);
+      sendSetParams();
     });
   });
 

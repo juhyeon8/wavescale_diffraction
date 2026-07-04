@@ -765,6 +765,7 @@ function applyUrlParams() {
   if (p.has('lambda')) state.lambda = Math.min(RANGES.lambda.max, Math.max(RANGES.lambda.min, parseFloat(p.get('lambda'))));
   if (p.has('a')) state.a = Math.min(RANGES.a.max, Math.max(RANGES.a.min, parseFloat(p.get('a'))));
   if (p.has('z')) state.z = Math.min(RANGES.z.max, Math.max(RANGES.z.min, parseFloat(p.get('z'))));
+  return { lockScale: p.get('lockScale') === '1' };
 }
 
 const PRESETS = {
@@ -863,12 +864,16 @@ function tick() {
    초기화
    ========================================================================= */
 function init() {
-  applyUrlParams();
+  const urlParams = applyUrlParams();
   setSlidersFromState();
   resizeAllCanvases();
   recomputeAll();
   attachScreenInteraction();
   drawAll();
+  if (urlParams.lockScale) {
+    el.scaleLockToggle.checked = true;
+    el.scaleLockToggle.dispatchEvent(new Event('change'));
+  }
   requestAnimationFrame(tick);
 
   window.addEventListener('resize', () => {
@@ -888,6 +893,12 @@ window.addEventListener('message', (e) => {
     if (e.data === 'scrollToPanelMain') {
       const panel = document.getElementById('panel-main');
       if (panel) panel.scrollIntoView({ block: 'start' });
+    } else if (e.data && e.data.type === 'diffhub-setParams') {
+      state.a = e.data.H_mm / 1000;
+      state.z = e.data.L_mm / 1000;
+      state.lambda = e.data.lam_cm / 100;
+      setSlidersFromState();
+      scheduleRecompute(0);
     }
   } catch (err) { /* 조용히 무시 */ }
 });

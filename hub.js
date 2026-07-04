@@ -215,5 +215,13 @@
   // =====================================================================
   syncMasterSliders();
   applyTab("huygens");
-  window.addEventListener("resize", () => applyTab(currentTab));
+  // 창 드래그 리사이즈는 초당 수십 번 resize를 발생시킨다. 디바운스 없이 매
+  // 이벤트마다 applyTab을 재실행하면 그때마다 metal/huygens iframe에 resize를
+  // 재전달하게 되어, 금속 앱의 무거운 recompute()가 반복 실행되어 페이지가
+  // 응답 없음 상태에 빠진다(§30 추록) — 150ms 디바운스로 완화한다.
+  let hubResizeDebounceTimer = null;
+  window.addEventListener("resize", () => {
+    if (hubResizeDebounceTimer) clearTimeout(hubResizeDebounceTimer);
+    hubResizeDebounceTimer = setTimeout(() => applyTab(currentTab), 150);
+  });
 })();

@@ -369,6 +369,10 @@
 
   function resize() {
     const rect = canvas.parentElement.getBoundingClientRect();
+    // 크기 변화가 없으면 recompute()를 건너뛴다 — 허브가 탭 전환마다 무조건
+    // resize 이벤트를 재전달하므로, 가드가 없으면 실제 폭/높이가 그대로여도
+    // 매번 수 초짜리 recompute가 다시 도는 문제가 있었다(§30 추록).
+    if (rect.width === layout.cssW && rect.height === layout.cssH) return;
     layout.cssW = rect.width; layout.cssH = rect.height;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(layout.cssW * dpr);
@@ -1059,7 +1063,15 @@
   applyViewModeUI();
   applyViewFieldUI();
   syncLabels();
-  window.addEventListener("resize", resize);
+  // 실제 창 드래그 리사이즈는 초당 수십 번 resize를 발생시킨다. 디바운스 없이
+  // resize를 그대로 recompute()에 연결하면 매 이벤트마다 수 초짜리 계산이
+  // 큐에 쌓여 페이지가 응답 없음 상태에 빠진다(§30 추록) — 150ms 디바운스로
+  // 마지막 이벤트에서만 1회 재계산한다.
+  let resizeDebounceTimer = null;
+  window.addEventListener("resize", function () {
+    if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
+    resizeDebounceTimer = setTimeout(resize, 150);
+  });
   resize();       // layout 확정 + recompute + drawFrame (로드당 recompute 1회, §30.10)
   selfCheck();    // 베셀 검증 — resize()가 이미 계산한 state를 그대로 단언
   requestAnimationFrame(loop);

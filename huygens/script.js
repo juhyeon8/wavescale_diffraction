@@ -156,12 +156,15 @@ function computePhasorPath(Y, lambda, a, zDist, N, obstacleOn) {
 /* =========================================================================
    스케일 계산 (자동 리스케일)
    ========================================================================= */
+function computeFreeHalfHeight(lambda, a, zDist) {
+  return Math.max(a * 0.75, Math.sqrt(lambda * zDist) * 6);
+}
 function computeScale(lambda, a, zDist) {
   const fresnel = Math.sqrt(lambda * zDist);
   const fresnelNumber = (a * a) / (lambda * zDist);
   const halfHeight = (state.scaleLocked && state.lockedHalfHeight != null)
     ? state.lockedHalfHeight
-    : Math.max(a * 0.75, fresnel * 6);
+    : computeFreeHalfHeight(lambda, a, zDist);
   return { fresnel, halfHeight, fresnelNumber };
 }
 
@@ -894,9 +897,19 @@ window.addEventListener('message', (e) => {
       const panel = document.getElementById('panel-main');
       if (panel) panel.scrollIntoView({ block: 'start' });
     } else if (e.data && e.data.type === 'diffhub-setParams') {
-      state.a = e.data.H_mm / 1000;
-      state.z = e.data.L_mm / 1000;
+      const newA = e.data.H_mm / 1000;
+      const newZ = e.data.L_mm / 1000;
+      const geometryChanged = (newA !== state.a) || (newZ !== state.z);
+      state.a = newA;
+      state.z = newZ;
       state.lambda = e.data.lam_cm / 100;
+      // 스케일 고정 중 기하(a,z)가 바뀌면 "지금 막 체크박스를 켰다면 잡혔을 값"으로
+      // 재고정한다(§30.9) — λ만 바뀔 때는 고정값을 그대로 둔다(같은 자로 비교하는
+      // 기능의 존재 이유). 사용자가 앱 안에서 고정을 껐다면(state.scaleLocked===false)
+      // 여기서 다시 켜지 않는다.
+      if (state.scaleLocked && geometryChanged) {
+        state.lockedHalfHeight = computeFreeHalfHeight(state.lambda, state.a, state.z);
+      }
       setSlidersFromState();
       scheduleRecompute(0);
     }

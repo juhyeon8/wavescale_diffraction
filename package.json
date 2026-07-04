@@ -1,0 +1,27 @@
+{
+  "name": "fourth-task",
+  "version": "1.0.0",
+  "description": "",
+  "main": "compare.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juhyeon8/diffractionmetal.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/juhyeon8/diffractionmetal/issues"
+  },
+  "homepage": "https://github.com/juhyeon8/diffractionmetal#readme",
+  "devDependencies": {
+    "javascript-obfuscator": "^5.4.3"
+  }
+}

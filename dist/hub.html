@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>회절 시뮬레이션 허브 — 금속 막대 vs 하위헌스</title>
+<style>
+:root {
+  --bg: #f7f7f8; --panel-bg: #ffffff; --border: #d8d8dc;
+  --text: #1c1c1f; --muted: #6b6b72; --accent: #2f6feb;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: var(--bg); color: var(--text);
+}
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* 탭 바 */
+#tabBar { display: flex; border-bottom: 1px solid var(--border); background: var(--panel-bg); flex-shrink: 0; }
+.tabBtn {
+  flex: 1; font-size: 13px; padding: 12px 8px; border: none; border-right: 1px solid var(--border);
+  background: var(--panel-bg); color: var(--muted); cursor: pointer;
+}
+.tabBtn:last-child { border-right: none; }
+.tabBtn:hover { background: #f0f0f3; }
+.tabBtn.active { background: var(--accent); color: #fff; font-weight: 600; }
+
+/* 마스터 컨트롤 바 */
+#masterBar { border-bottom: 1px solid var(--border); background: #fbfbfc; flex-shrink: 0; }
+#masterToggleBtn {
+  width: 100%; text-align: left; font-size: 12px; padding: 6px 12px; border: none;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+#masterToggleBtn:hover { background: #f0f0f3; }
+#masterBody { padding: 4px 12px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+#masterBody.collapsed { display: none; }
+.mRow { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.mRow label { width: 14px; color: var(--muted); }
+.mRow input[type=range] { width: 130px; }
+.mRow span { width: 62px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.mBtnRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#applyBtn, .presetBtn {
+  font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: #f0f0f3; cursor: pointer;
+}
+#applyBtn { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+#applyBtn:hover { opacity: .9; }
+.presetBtn:hover { background: #e4e4e8; }
+.mHint { flex-basis: 100%; font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+/* 메인 영역 */
+#mainArea { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #e8e8ec; }
+#pairPane { position: absolute; inset: 0; display: flex; }
+#metalWrap, #huygensWrap { position: relative; flex: 1 1 100%; height: 100%; overflow: hidden; }
+#metalWrap iframe, #huygensWrap iframe, #comparePane iframe {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; display: block;
+}
+#comparePane { position: absolute; inset: 0; visibility: hidden; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="tabBar">
+    <button class="tabBtn active" data-tab="huygens">① 하위헌스</button>
+    <button class="tabBtn" data-tab="metal">② 금속 막대</button>
+    <button class="tabBtn" data-tab="side">③ 나란히 보기</button>
+    <button class="tabBtn" data-tab="compare">④ 정량 비교</button>
+  </div>
+
+  <div id="masterBar">
+    <button id="masterToggleBtn">▾ 마스터 컨트롤</button>
+    <div id="masterBody">
+      <div class="mRow"><label>H</label><input type="range" id="mH" min="20" max="300" step="1" value="200"><span id="mHVal"></span></div>
+      <div class="mRow"><label>L</label><input type="range" id="mL" min="30" max="300" step="1" value="300"><span id="mLVal"></span></div>
+      <div class="mRow"><label>λ</label><input type="range" id="mLam" min="1" max="30" step="0.1" value="4"><span id="mLamVal"></span></div>
+      <div class="mBtnRow">
+        <button id="applyBtn">↺ 전체 초기화</button>
+        <button class="presetBtn" id="preset1Btn">깊은 그림자 (λ=1cm)</button>
+        <button class="presetBtn" id="preset2Btn">전이 (λ=4cm)</button>
+        <button class="presetBtn" id="preset3Btn">그림자 메워짐 (λ=20cm)</button>
+      </div>
+      <div class="mHint">슬라이더·프리셋은 리로드 없이 즉시 반영됩니다. ↺는 전체 초기화(리로드)입니다. 하위헌스 화면의 a&sup2;/(&lambda;z)는 금속 앱 N_F의 4배입니다.</div>
+    </div>
+  </div>
+
+  <div id="mainArea">
+    <div id="pairPane">
+      <div id="huygensWrap"><iframe id="huygensFrame" src="./huygens/index.html?lambda=0.04&a=0.2&z=0.3&lockScale=1"></iframe></div>
+      <div id="metalWrap"><iframe id="metalFrame" src="./index.html?mode=solid&H=200&L=300&lam=4&gridW=600"></iframe></div>
+    </div>
+    <div id="comparePane">
+      <iframe id="compareFrame" src="./compare.html?H=200&L=300&lam=4"></iframe>
+    </div>
+  </div>
+</div>
+<script src="hub.js"></script>
+</body>
+</html>

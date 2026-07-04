@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>금속 막대 회절 시뮬레이션</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="canvasWrap"><canvas id="canvas"></canvas></div>
+  <div id="panel">
+    <h1>금속 막대 회절</h1>
+    <div class="sub">x=0에 도선 N개를 세로로 쌓아 금속 막대(장애물)를 만들고,
+      왼→오른 평면파의 회절을 봅니다. 굵기 2a가 간격 d 이상이면 도선이 닿아
+      솔리드 막대가 됩니다. 전기장(도선과 평행 성분) 한 가지만 그립니다.</div>
+
+    <h2>장애물 설정</h2>
+    <div class="segbtns" id="modeButtons">
+      <button id="modeWireBtn" class="active">도선 배열 모드</button>
+      <button id="modeSolidBtn">솔리드 막대 모드</button>
+    </div>
+    <div id="wireControls">
+      <div class="row">
+        <label style="width:60px">개수 N</label>
+        <input type="range" id="nSlider" min="2" max="120" step="1" value="40">
+        <span class="valbox" id="nVal"></span>
+      </div>
+      <div class="row">
+        <label style="width:60px">간격 d</label>
+        <input type="range" id="dSlider" min="0.5" max="20" step="0.1" value="4">
+        <span class="valbox" id="dVal"></span>
+      </div>
+      <div class="row">
+        <label style="width:60px">굵기 a</label>
+        <input type="range" id="aSlider" min="0.05" max="6" step="0.05" value="1">
+        <span class="valbox" id="aVal"></span>
+      </div>
+    </div>
+    <div id="solidControls" style="display:none">
+      <div class="row">
+        <label style="width:60px">장애물 높이 H</label>
+        <input type="range" id="hSlider" min="20" max="300" step="1" value="150">
+        <span class="valbox" id="hVal"></span>
+      </div>
+    </div>
+
+    <!-- 파동 설정 -->
+    <h2>파동 설정</h2>
+    <div class="row">
+      <label style="width:48px">파장 λ</label>
+      <input type="range" id="lamSlider" min="1" max="30" step="0.1" value="12">
+      <span class="valbox" id="lamVal"></span>
+    </div>
+    <div class="row">
+      <label style="width:48px">진폭 A</label>
+      <input type="range" id="ampSlider" min="0" max="2" step="0.05" value="1">
+      <span class="valbox" id="ampVal"></span>
+    </div>
+    <div class="row">
+      <label style="width:60px">스크린 거리 L</label>
+      <input type="range" id="lSlider" min="10" max="300" step="1" value="100">
+      <span class="valbox" id="lVal"></span>
+    </div>
+
+    <!-- 화면 보기(줌) -->
+    <h2>화면 보기 (줌)</h2>
+    <div class="segbtns" id="viewModeButtons">
+      <button id="viewMode3bandBtn" class="active">3분할 뷰</button>
+      <button id="viewMode1to1Btn">1:1 관찰 모드</button>
+    </div>
+    <div class="segbtns" id="viewFieldButtons" style="display:none">
+      <button id="viewFieldIncBtn">① 입사</button>
+      <button id="viewFieldScBtn">② 산란</button>
+      <button id="viewFieldTotalBtn" class="active">③ 중첩</button>
+    </div>
+    <div class="zoomRow">
+      <button class="zoomBtn" id="zoomOutBtn">−</button>
+      <span class="zoomPct" id="zoomPctVal">100%</span>
+      <button class="zoomBtn" id="zoomInBtn">+</button>
+    </div>
+    <button class="zoomResetBtn" id="zoomResetBtn">⤾ 기본 보기</button>
+    <div class="zoomHint">캔버스 위에서 마우스 휠로도 확대·축소할 수 있어요.</div>
+
+    <!-- 애니메이션 -->
+    <h2>애니메이션</h2>
+    <div class="ctrlrow">
+      <button class="std" id="playBtn">‖ 일시정지</button>
+    </div>
+    <div class="row" id="phaseWrap">
+      <label style="width:48px">위상</label>
+      <input type="range" id="phaseSlider" min="0" max="360" step="1" value="0">
+      <span class="valbox" id="phaseVal">0°</span>
+    </div>
+    <div class="hint" id="phaseHint" style="display:none">
+      전자기파는 시간에 따라 진동합니다. <b>위상(0°→360°)</b>은 한 주기 안의 '시각'입니다.
+      슬라이더를 움직이면 파동이 어느 순간에 있는지 정지 화면으로 탐색할 수 있습니다.
+      0°와 360°는 같은 순간(한 주기 후)이고, 180°는 빨강·파랑이 반전된 순간입니다.
+    </div>
+
+    <!-- 현재 상태 -->
+    <h2>현재 상태</h2>
+    <div class="info" id="infoBox"></div>
+
+    <div class="hint">
+      ① 입사파 · ② 산란파(도선들의 원통파 합) · ③ 중첩(①+②). 세 칸은 같은 색 스케일.<br>
+      오른쪽 곡선은 거리 L의 스크린에서 본 밝기 I(y)=|E|².
+      <b>H와 L을 고정하고 λ만 바꿔 보세요</b> — λ/H·Fresnel 수 배지가
+      "그림자 뚜렷 → 전이 → 감싸 돎"으로 바뀌는 것을 볼 수 있습니다.
+      <b>그림자 채움률 S̄</b>는 기하광학이라면 0이어야 할 그림자 영역(|y|≤H/2)에
+      회절로 흘러 들어온 에너지 비율로, 중심 한 점(I₀)과 달리 프레넬 진동에 덜
+      흔들리는 판단 기준입니다.
+      λ를 키우면 그림자 중심이 점점 밝아집니다(I₀ 증가) — 파동이 장애물을 감싸 돌아
+      그림자를 메우는 회절의 증거입니다. 이때 어두운 구간의 '폭'은 오히려 넓어질 수
+      있습니다. 회절로 교란이 넓은 각도(θ≈λ/H)로 퍼지면서, 좁고 깊은 그림자(짧은 λ)가
+      넓고 얕은 그늘(긴 λ)로 바뀌기 때문입니다. <b>회절 증가의 판단 기준은 폭이 아니라
+      중심 세기 I₀</b>입니다. 또한 λ=2~4cm 부근에서 I₀가 잠깐 출렁이는 것은 프레넬 수
+      N_F가 1~3을 지나는 근접장 간섭으로, 정상적인 물리 현상입니다.
+      <b>파장별 회절 비교는 솔리드 모드(틈 없음)</b>에서 하세요(도선 모드는 틈 사이 투과가
+      섞입니다). L이 작으면 복잡한 줄무늬(근접장), 크면 부드러운 봉우리(원거리장)로
+      무늬 성격이 달라집니다 — 정상 현상입니다.<br>
+      색: <b>빨강(+E)</b> · 흰(0) · <span style="color:#2f6feb">파랑(−E)</span>.
+    </div>
+  </div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>

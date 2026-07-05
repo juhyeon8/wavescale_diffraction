@@ -9,7 +9,7 @@
   //  L_mm (mm)         | L=L_mm (mm)          | z=L_mm/1000 (m)        | L=L_mm (mm)
   //  lam_cm (cm)       | lam=lam_cm (cm)      | lambda=lam_cm/100 (m)  | lam=lam_cm (cm)
   // =====================================================================
-  const state = { H_mm: 200, L_mm: 300, lam_cm: 4 };
+  const state = { H_mm: 100, L_mm: 300, lam_cm: 4 };
 
   const el = {
     tabBtns: Array.from(document.querySelectorAll('.tabBtn')),
@@ -108,10 +108,10 @@
   }
   el.applyBtn.addEventListener("click", reloadAll);
 
-  const PRESETS = { preset1Btn: 1, preset2Btn: 4, preset3Btn: 20 };
+  const PRESETS = { preset1Btn: 2, preset2Btn: 5, preset3Btn: 20 };
   Object.keys(PRESETS).forEach((id) => {
     el[id].addEventListener("click", () => {
-      state.H_mm = 200; state.L_mm = 300; state.lam_cm = PRESETS[id];
+      state.H_mm = 100; state.L_mm = 300; state.lam_cm = PRESETS[id];
       syncMasterSliders();
       if (paramSyncTimer) clearTimeout(paramSyncTimer);
       sendSetParams();

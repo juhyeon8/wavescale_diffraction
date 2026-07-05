@@ -11,7 +11,7 @@
   // 1. 상태
   // =====================================================================
   const state = {
-    H_mm: 200, L_mm: 300, lam_cm: 1,
+    H_mm: 100, L_mm: 300, lam_cm: 1,
   };
 
   // =====================================================================
@@ -551,13 +551,13 @@
   });
 
   const PRESETS = {
-    preset1Btn: { lam_cm: 1 },
-    preset2Btn: { lam_cm: 4 },
+    preset1Btn: { lam_cm: 2 },
+    preset2Btn: { lam_cm: 5 },
     preset3Btn: { lam_cm: 20 },
   };
   Object.keys(PRESETS).forEach((id) => {
     el[id].addEventListener("click", () => {
-      state.H_mm = 200; state.L_mm = 300; state.lam_cm = PRESETS[id].lam_cm;
+      state.H_mm = 100; state.L_mm = 300; state.lam_cm = PRESETS[id].lam_cm;
       setSlidersFromState();
       recomputeBoth();
     });

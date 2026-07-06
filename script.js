@@ -334,7 +334,7 @@
     base.xMin = baseXmin; base.xMax = baseXmax; base.Yw = baseYw;
 
     // [1:1 모드] 좌표계 — L 무관, H만의 함수(§20.2)
-    layout.bandH1to1 = layout.cssH - layout.marginT - layout.marginB;
+    layout.bandH1to1 = Math.max(1, layout.cssH - layout.marginT - layout.marginB);
     const range1to1 = compute1to1Range(H_m, layout.bandW, layout.bandH1to1);
     base1to1.xMin = range1to1.xMin1to1; base1to1.xMax = range1to1.xMax1to1; base1to1.Yw = range1to1.Yw1to1;
 
@@ -385,7 +385,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     layout.bandX = layout.marginL;
-    layout.bandW = layout.cssW - layout.marginL - layout.marginR - layout.plotW - layout.gap;
+    layout.bandW = Math.max(1, layout.cssW - layout.marginL - layout.marginR - layout.plotW - layout.gap);
     const totalH = layout.cssH - layout.marginT - layout.marginB - 2 * layout.gap;
     layout.bandH = totalH / 3;
     for (let i = 0; i < 3; i++)

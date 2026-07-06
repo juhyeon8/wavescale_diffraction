@@ -58,9 +58,8 @@
     const msg = { type: "diffhub-setParams", H_mm: state.H_mm, L_mm: state.L_mm, lam_cm: state.lam_cm };
     try { frames[name].contentWindow.postMessage(msg, "*"); } catch (e) { /* 동일 출처가 아니면 무시 */ }
   }
-  let paramSyncTimer = null;
-  function sendSetParams() {
-    Object.keys(frames).forEach((name) => {
+  function sendSetParams(names) {
+    names.forEach((name) => {
       if (isFrameVisible(name)) sendSetParamsTo(name);
       else dirty[name] = true;
     });
@@ -73,13 +72,27 @@
       }
     });
   }
+  // 드래그 중(input)에는 가벼운 앱(하위헌스·compare)만 300ms 디바운스로 실시간
+  // 갱신하고, 무거운 금속 앱(MoM recompute)은 슬라이더를 놓는 순간(change)에
+  // 딱 한 번만 갱신한다(§30.13) — 드래그 중 중간값마다 금속 recompute가 메인
+  // 스레드를 잡아 화면이 끊기는 문제를 막기 위함. 드래그 동안에는 금속을
+  // dirty로만 표시해 두고, 놓는 순간 보이면 즉시 전송, 안 보이면 기존
+  // flushDirtyFrames가 탭 전환 시 처리한다.
+  const LIGHT_FRAMES = ["huygens", "compare"];
+  let paramSyncTimer = null;
   function scheduleParamSync() {
     if (paramSyncTimer) clearTimeout(paramSyncTimer);
-    paramSyncTimer = setTimeout(sendSetParams, 300);
+    paramSyncTimer = setTimeout(() => sendSetParams(LIGHT_FRAMES), 300);
   }
-  el.mH.addEventListener("input", function () { state.H_mm = parseFloat(this.value); syncMasterLabels(); scheduleParamSync(); });
-  el.mL.addEventListener("input", function () { state.L_mm = parseFloat(this.value); syncMasterLabels(); scheduleParamSync(); });
-  el.mLam.addEventListener("input", function () { state.lam_cm = parseFloat(this.value); syncMasterLabels(); scheduleParamSync(); });
+  function commitHeavyParams() {
+    if (isFrameVisible("metal")) { sendSetParamsTo("metal"); dirty.metal = false; }
+  }
+  el.mH.addEventListener("input", function () { state.H_mm = parseFloat(this.value); syncMasterLabels(); dirty.metal = true; scheduleParamSync(); });
+  el.mL.addEventListener("input", function () { state.L_mm = parseFloat(this.value); syncMasterLabels(); dirty.metal = true; scheduleParamSync(); });
+  el.mLam.addEventListener("input", function () { state.lam_cm = parseFloat(this.value); syncMasterLabels(); dirty.metal = true; scheduleParamSync(); });
+  el.mH.addEventListener("change", commitHeavyParams);
+  el.mL.addEventListener("change", commitHeavyParams);
+  el.mLam.addEventListener("change", commitHeavyParams);
 
   // 순차 리로드(§30.11) — 세 iframe을 동시에 리로드하면 무거운 금속 앱
   // recompute가 메인 스레드를 독점해 전체 UI가 수 초간 멈춘 것처럼 보인다.
@@ -114,7 +127,7 @@
       state.H_mm = 100; state.L_mm = 300; state.lam_cm = PRESETS[id];
       syncMasterSliders();
       if (paramSyncTimer) clearTimeout(paramSyncTimer);
-      sendSetParams();
+      sendSetParams(Object.keys(frames));
     });
   });
 

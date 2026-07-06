@@ -369,6 +369,11 @@
 
   function resize() {
     const rect = canvas.parentElement.getBoundingClientRect();
+    // 그리기 불가능한 과도기 크기(탭 전환 중간 등)는 통째로 건너뛴다 — 이번 크기는
+    // layout.cssW/cssH에 반영조차 하지 않으므로, 다음 정상 크기의 resize에서
+    // 처음부터 다시 계산된다(§32). 임계값은 실제 물리적 하한(bandW: cssW-134,
+    // bandH1to1: cssH-20)보다 여유를 둔 안전판.
+    if (rect.width < 200 || rect.height < 150) return;
     // 크기 변화가 없으면 recompute()를 건너뛴다 — 허브가 탭 전환마다 무조건
     // resize 이벤트를 재전달하므로, 가드가 없으면 실제 폭/높이가 그대로여도
     // 매번 수 초짜리 recompute가 다시 도는 문제가 있었다(§30 추록).

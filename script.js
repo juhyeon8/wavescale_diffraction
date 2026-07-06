@@ -584,7 +584,7 @@
     for (let n = 0; n < N; n++) {
       const p = worldToBand(0, solver.wiresY[n], by);
       if (p.y < by - 4 || p.y > by + bh + 4) continue;
-      ctx.beginPath(); ctx.arc(p.x, p.y, rPx, 0, TWO_PI);
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0, rPx), 0, TWO_PI);
       if (band !== 0) {
         ctx.fillStyle = "#3a3a40"; ctx.fill();
         ctx.lineWidth = 1; ctx.strokeStyle = "#1c1c1f"; ctx.stroke();
@@ -687,7 +687,7 @@
     for (let n = 0; n < N; n++) {
       const p = worldToBand1to1(0, solver.wiresY[n], by);
       if (p.y < by - 4 || p.y > by + bh + 4) continue;
-      ctx.beginPath(); ctx.arc(p.x, p.y, rPx, 0, TWO_PI);
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0, rPx), 0, TWO_PI);
       ctx.fillStyle = "#3a3a40"; ctx.fill();
       ctx.lineWidth = 1; ctx.strokeStyle = "#1c1c1f"; ctx.stroke();
     }

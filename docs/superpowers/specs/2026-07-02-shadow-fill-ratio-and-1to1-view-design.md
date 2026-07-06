@@ -969,3 +969,62 @@ S̄_Huygens=0.180로 차이가 −0.003(Huygens 기준)에 불과해, 두 모형
   단언(§28.1 기준4 대응)은 함수 단위 회귀 테스트이므로 그대로 유지했다 —
   이 단언은 "compare.js의 이산화 로직이 임의의 H/λ 조합에서 여전히 올바르게
   동작하는가"를 확인하는 것이지 허브의 기본값을 검증하는 것이 아니다.
+
+## 32. 버그 수정 — 금속 앱 ctx.arc 음수 반지름 예외 (탭 전환 시 콘솔 오염)
+
+**증상**: hub에서 탭 전환을 반복하면 금속 앱(`script.js`) 콘솔에
+`Uncaught IndexSizeError: The radius provided is negative`가 발생한다
+(`ctx.arc` 호출부). H=200/H=100 등 §31 재기준과 무관하게 이전부터 있던
+버그이며, 배포본(`dist/`)에서도 동일하게 재현된다. 화면이 깨지지는 않지만
+예외가 해당 프레임의 그리기를 중단시키고 콘솔을 오염시킨다.
+
+**원인**: `resize()`(script.js:370)의 `layout.bandW = cssW - marginL(12) -
+marginR(12) - plotW(96) - gap(14)` = `cssW - 134`가, 탭 전환 중 컨테이너
+폭이 순간적으로 134px 미만이 되면 음수가 된다. 마찬가지로
+`layout.bandH1to1 = cssH - marginT(10) - marginB(10)`(script.js:337)도 높이가
+20px 미만인 순간 음수가 될 수 있다. `bandW`가 음수면 `drawOverlay`/
+`drawOverlay1to1`의 `sPx = bandW / (xMax - xMin)`가 음수가 되고, 이로부터
+파생되는 `dPx`가 음수가 되어 `rPx = Math.min(dPx*0.5, Math.max(1.5, aPx))`가
+음수로 계산된 채 `ctx.arc(p.x, p.y, rPx, ...)`(script.js:582, 685 — 도선을
+그리는 루프)에 그대로 전달되어 예외가 난다.
+
+추가로, `resize()`는 `drawFrame()`뿐 아니라 `recompute()`도 호출하는데
+(script.js:392), `recompute()` 내부 `aspect3band = bandH / bandW`
+(script.js:230)가 `bandW`가 음수일 때 음수/NaN aspect를 만들고 이것이
+`requiredGridH()`를 거쳐 `gridH`가 음수가 되면 `new
+Float32Array(gridW*gridH)`에서 `RangeError`가 날 수 있다 — 즉 문제 범위는
+`drawFrame`의 arc 호출뿐 아니라 `resize()`가 하는 일 전체다.
+
+**수정 방침**: try-catch로 감싸 증상만 숨기는 방식은 금지(원인을 가리는
+처리). 물리 함수·recompute 로직은 무수정, 뷰 계층만 수정한다.
+
+1. **원천 조기 return**: `resize()` 맨 앞, `rect`를 읽은 직후 —
+   `if (rect.width < 200 || rect.height < 150) return;` — `layout.cssW/cssH`나
+   `canvas.width/height`를 건드리기 전에 통째로 건너뛴다. `recompute()`와
+   `drawFrame()` 모두 이번 프레임엔 실행되지 않고, 다음 정상 크기의 resize
+   이벤트에서 처음부터 다시 계산된다. 임계값(200×150)은 실제 물리적 하한
+   (134×20)보다 여유를 둔 안전판이며, 실사용 크기에서는 걸리지 않는다.
+2. **파생 치수 하한 클램프(2중 방어)**: `layout.bandW = Math.max(1, cssW -
+   marginL - marginR - plotW - gap)`(script.js:383),
+   `layout.bandH1to1 = Math.max(1, cssH - marginT - marginB)`(script.js:337).
+3. **arc 호출부 방어**: script.js:582, 685의
+   `ctx.arc(p.x, p.y, Math.max(0, rPx), 0, TWO_PI);`.
+
+**애니메이션 재생 중 안전성**: `loop()`(script.js:948)이 `requestAnimationFrame`으로
+`state.playing`일 때 매 프레임 `drawFrame()`을 직접 호출하는데, resize()의
+조기 return이 `layout.bandW`/`bandH1to1`을 애초에 갱신하지 않으므로,
+창이 임계값 아래로 줄어든 동안에도 `drawFrame()`은 마지막 정상 layout
+값으로 계속 안전하게 그려진다.
+
+### 32.1 검증 (acceptance)
+
+1. hub에서 4개 탭을 빠르게 20회 이상 왕복 전환 + 창 크기 드래그 — 콘솔
+   예외 0건(이전에는 이 시나리오에서 IndexSizeError 발생).
+2. 극단 크기: 브라우저 창을 아주 좁게(<400px) 줄였다 되돌려도 예외 없음,
+   되돌린 후 화면 정상 복구.
+3. 애니메이션 재생 중 창을 임계값(<200px) 아래로 줄였다 되돌리기 — 조기
+   return 동안 stale layout으로 도는 `drawFrame()`에서 예외 없음, 되돌린
+   뒤 화면 정상 복구.
+4. 단독 실행(`index.html`) 회귀: `selfCheck()` 통과, 3분할/1:1, 모드 전환,
+   줌 정상.
+5. `dist/` 재빌드 → 커밋·푸시 → 배포본에서 시나리오 1 재확인.

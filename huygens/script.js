@@ -301,12 +301,15 @@ function drawMainView() {
   const L = layoutMain(canvas);
   ctx.clearRect(0, 0, L.w, L.h);
 
-  // 입사 평면파 (개념적 표시, 실제 스케일 아님)
+  // 입사 평면파 — 선 간격 = 파장 λ. 장애물 색 띠와 같은 세로 스케일(L.pxPerM)을
+  // 공유해야 "선 간격 : 색 띠 높이" 비율이 "λ : 장애물 폭 a"와 물리적으로 일치한다.
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, L.xObstacle, L.h);
   ctx.clip();
-  const waveSpacing = 16;
+  const rawWaveSpacing = state.lambda * L.pxPerM;
+  const waveSpacing = Math.min(L.w / 3, Math.max(6, rawWaveSpacing));
+  const waveSpacingClamped = waveSpacing !== rawWaveSpacing;
   ctx.strokeStyle = 'rgba(120,170,255,0.55)';
   ctx.lineWidth = 1.5;
   for (let x = -waveSpacing + (wavePhase % waveSpacing); x < L.xObstacle + waveSpacing; x += waveSpacing) {
@@ -318,7 +321,7 @@ function drawMainView() {
   ctx.restore();
   ctx.fillStyle = '#7a90c8';
   ctx.font = '11px sans-serif';
-  ctx.fillText('입사 평면파 (파장은 개념적 표시)', 8, 14);
+  ctx.fillText('입사 평면파 (선 간격 = 파장 λ' + (waveSpacingClamped ? ' · 범위 제한' : '') + ')', 8, 14);
 
   // 색 띠 (입사 파면 단면, 장애물 직전) — 어느 y가 어느 색인지 표시
   const barX = L.xObstacle - 10;

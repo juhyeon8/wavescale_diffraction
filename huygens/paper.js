@@ -393,9 +393,6 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
     ctx.strokeStyle = THEME.rangeBox;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(barX - 7, topPx, 14, botPx - topPx);
-    ctx.fillStyle = THEME.rangeBox;
-    ctx.font = fontPx(16);
-    ctx.fillText('②범위', barX + 10, topPx - 2);
   }
 
   // 장애물
@@ -552,15 +549,6 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
     // 라벨 텍스트 자체는 눈금(ruler)보다 나중에 그려야 폰트 배율이 커졌을 때
     // 눈금 숫자와 겹치지 않고 위에 온전히 보인다 (아래 drawCenteredRuler 호출 직후 렌더링).
     markerLabelPy = py;
-  } else {
-    const atTop = Y > focusY + R;
-    const edgePy = atTop ? 10 : L.h - 10;
-    const dist = Math.abs(Y - focusY) - R;
-    ctx.fillStyle = THEME.marker;
-    ctx.font = fontPx(18, 'bold');
-    ctx.fillText(atTop ? '▲' : '▼', L.cx - 5, edgePy + (atTop ? 4 : 0));
-    ctx.font = fontPx(16);
-    ctx.fillText(`Y는 이 방향으로 ${formatLength(dist)} 더 (범위 밖)`, 6, edgePy + (atTop ? 14 : -8));
   }
 
   const armLen = Math.min(26, (L.h * 0.85) / M / 2 + 6);

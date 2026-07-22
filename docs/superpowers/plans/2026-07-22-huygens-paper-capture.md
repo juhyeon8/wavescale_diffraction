@@ -12,7 +12,13 @@
 
 - `huygens/index.html`, `huygens/style.css`, `huygens/script.js`는 **어떤 태스크에서도 수정 금지**. 각 태스크 끝에서 `git status`로 이 3개 파일이 변경 목록에 없는지 확인한다.
 - 물리 엔진 8개 함수(`fresnelCS`, `kFactor`, `totalAmplitude`, `fresnelIntensity`, `computePhasorPath`, `computeScale`, `computeFreeHalfHeight`, `niceRulerStep`)와 그 사이의 주석·`V_MAX`·`REF_INTENSITY`를 포함한 원본 script.js의 **59~181번째 줄 블록은 어떤 태스크에서도 건드리지 않는다**(Task 8에서 바이트 단위로 검증).
-- 이 저장소에는 자동화 테스트 러너가 없다(`package.json`의 `test`는 placeholder). 각 태스크의 검증은 프로젝트 루트(`C:\dev\04-task(diffraction integrate)`)에서 `node <임시스크립트>.mjs`로 Playwright를 직접 구동하는 방식이며, 스크립트는 검증 후 삭제한다(레포에 테스트 인프라를 새로 만들지 않는다).
+- 이 저장소에는 자동화 테스트 러너가 없다(`package.json`의 `test`는 placeholder). 각 태스크의 검증은 프로젝트 루트에서 `node <임시스크립트>.mjs`로 Playwright를 직접 구동하는 방식이며, 스크립트는 검증 후 삭제한다(레포에 테스트 인프라를 새로 만들지 않는다).
+- 이 작업은 격리된 git worktree에서 진행되며, worktree에는 자체 `node_modules`가 없다(`playwright`는 메인 체크아웃 `C:\dev\04-task(diffraction integrate)\node_modules`에만 설치되어 있음). 모든 검증 스크립트에서 `import { chromium } from 'playwright';` 대신 다음을 쓴다:
+  ```js
+  import { createRequire } from 'node:module';
+  const req = createRequire(import.meta.url);
+  const { chromium } = req(req.resolve('playwright', { paths: ['C:/dev/04-task(diffraction integrate)'] }));
+  ```
 - 새 UI 요소의 id는 전부 `paper-` 접두사(단, 기존 CSS 클래스 재사용을 위한 `.readout`/`.slider-label`/`.control-group` 등 클래스명은 그대로 사용).
 - 근거 문서: `docs/superpowers/specs/2026-07-22-huygens-paper-capture-design.md`.
 

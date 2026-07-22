@@ -20,6 +20,26 @@ const state = {
   animFrame: 0,
 };
 
+const THEME = {
+  canvasBg: '#ffffff',
+  text: '#1a1a1a',
+  textDim: '#3a4058',
+  axis: 'rgba(0,0,0,0.3)',
+  axisFaint: 'rgba(0,0,0,0.12)',
+  dashed: 'rgba(0,0,0,0.35)',
+  waveLine: 'rgba(30,80,190,0.6)',
+  fillWarn: 'rgba(230,120,20,0.15)',
+  curveLine: '#d97a12',
+  marker: '#d1204a',
+  markerLine: 'rgba(209,32,74,0.85)',
+  rangeBox: '#c97a12',
+  obstacle: '#5b6273',
+  obstacleStroke: '#4a5068',
+  obstacleShade: 'rgba(91,98,115,0.25)',
+  blocked: '#9aa0b5',
+  refSpiral: 'rgba(60,66,90,0.35)',
+};
+
 // 캐시된 계산 결과 (파라미터가 바뀔 때만 재계산)
 const cache = {
   scale: null,
@@ -186,7 +206,7 @@ function niceRulerStep(halfHeight) {
 function yToColor(y, domain) {
   const t = Math.max(0, Math.min(1, (y + domain) / (2 * domain)));
   const hue = 240 - 240 * t; // 파란(아래) -> 빨간(위)
-  return `hsl(${hue}, 85%, 55%)`;
+  return `hsl(${hue}, 85%, 45%)`;
 }
 
 /* =========================================================================
@@ -299,6 +319,8 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   const s = cache.scale;
   const L = layoutMain(logicalW, logicalH);
   ctx.clearRect(0, 0, L.w, L.h);
+  ctx.fillStyle = THEME.canvasBg;
+  ctx.fillRect(0, 0, L.w, L.h);
 
   // 입사 평면파 — 선 간격 = 파장 λ. 장애물 색 띠와 같은 세로 스케일(L.pxPerM)을
   // 공유해야 "선 간격 : 색 띠 높이" 비율이 "λ : 장애물 폭 a"와 물리적으로 일치한다.
@@ -309,7 +331,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   const rawWaveSpacing = state.lambda * L.pxPerM;
   const waveSpacing = Math.min(L.w / 3, Math.max(6, rawWaveSpacing));
   const waveSpacingClamped = waveSpacing !== rawWaveSpacing;
-  ctx.strokeStyle = 'rgba(120,170,255,0.55)';
+  ctx.strokeStyle = THEME.waveLine;
   ctx.lineWidth = 1.5;
   for (let x = -waveSpacing + (wavePhaseValue % waveSpacing); x < L.xObstacle + waveSpacing; x += waveSpacing) {
     ctx.beginPath();
@@ -318,7 +340,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
     ctx.stroke();
   }
   ctx.restore();
-  ctx.fillStyle = '#7a90c8';
+  ctx.fillStyle = THEME.textDim;
   ctx.font = '11px sans-serif';
   ctx.fillText('입사 평면파 (선 간격 = 파장 λ' + (waveSpacingClamped ? ' · 범위 제한' : '') + ')', 8, 14);
 
@@ -330,7 +352,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
     const y0 = yBot + (yTop - yBot) * i / steps;
     const y1 = yBot + (yTop - yBot) * (i + 1) / steps;
     const blocked = state.obstacleOn && Math.abs((y0 + y1) / 2) <= state.a / 2;
-    ctx.fillStyle = blocked ? '#444a5e' : yToColor((y0 + y1) / 2, s.halfHeight);
+    ctx.fillStyle = blocked ? THEME.blocked : yToColor((y0 + y1) / 2, s.halfHeight);
     const py0 = yToPx(y0, L), py1 = yToPx(y1, L);
     ctx.fillRect(barX - 4, Math.min(py0, py1), 8, Math.abs(py1 - py0) + 1);
   }
@@ -341,10 +363,10 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
     const R = state.fixedRange;
     const topPx = yToPx(Math.min(state.focusY + R, s.halfHeight), L);
     const botPx = yToPx(Math.max(state.focusY - R, -s.halfHeight), L);
-    ctx.strokeStyle = 'rgba(255,212,121,0.8)';
+    ctx.strokeStyle = THEME.rangeBox;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(barX - 7, topPx, 14, botPx - topPx);
-    ctx.fillStyle = 'rgba(255,212,121,0.85)';
+    ctx.fillStyle = THEME.rangeBox;
     ctx.font = '10px sans-serif';
     ctx.fillText('②범위', barX + 10, topPx - 2);
   }
@@ -353,19 +375,19 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   if (state.obstacleOn) {
     const topPx = yToPx(state.a / 2, L);
     const botPx = yToPx(-state.a / 2, L);
-    ctx.fillStyle = '#5b6273';
+    ctx.fillStyle = THEME.obstacle;
     ctx.fillRect(L.xObstacle - 7, topPx, 14, botPx - topPx);
-    ctx.strokeStyle = '#9aa3bd';
+    ctx.strokeStyle = THEME.obstacleStroke;
     ctx.strokeRect(L.xObstacle - 7, topPx, 14, botPx - topPx);
   }
-  ctx.fillStyle = '#aab2cf';
+  ctx.fillStyle = THEME.textDim;
   ctx.font = '11px sans-serif';
   ctx.fillText('장애물 (폭 ' + formatLength(state.a) + ')', L.xObstacle - 40, yToPx(s.halfHeight, L) - 6);
 
   // 기하광학적 그림자 경계 (점선)
   if (state.obstacleOn) {
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.strokeStyle = THEME.dashed;
     [state.a / 2, -state.a / 2].forEach(yEdge => {
       ctx.beginPath();
       ctx.moveTo(L.xObstacle, yToPx(yEdge, L));
@@ -376,7 +398,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   }
 
   // 스크린 선
-  ctx.strokeStyle = '#aab2cf';
+  ctx.strokeStyle = THEME.textDim;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(L.xScreen, yToPx(s.halfHeight, L));
@@ -389,7 +411,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
     const curveMaxPx = L.w - L.xScreen - 16;
     const normFactor = curveMaxPx / Math.max(curve.maxI, 1e-6);
     ctx.beginPath();
-    ctx.strokeStyle = '#ffd479';
+    ctx.strokeStyle = THEME.curveLine;
     ctx.lineWidth = 2;
     for (let i = 0; i < curve.ys.length; i++) {
       const px = L.xScreen + curve.intens[i] * normFactor;
@@ -397,7 +419,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.stroke();
-    ctx.fillStyle = 'rgba(255,212,121,0.12)';
+    ctx.fillStyle = THEME.fillWarn;
     ctx.lineTo(L.xScreen, yToPx(curve.ys[curve.ys.length - 1], L));
     ctx.lineTo(L.xScreen, yToPx(curve.ys[0], L));
     ctx.closePath();
@@ -408,9 +430,9 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   const markerPx = yToPx(state.Y, L);
   ctx.beginPath();
   ctx.arc(L.xScreen, markerPx, 7, 0, Math.PI * 2);
-  ctx.fillStyle = '#ff5577';
+  ctx.fillStyle = THEME.marker;
   ctx.fill();
-  ctx.strokeStyle = '#fff';
+  ctx.strokeStyle = THEME.text;
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
@@ -420,8 +442,8 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
 
 function drawRuler(ctx, L, s) {
   const step = niceRulerStep(s.halfHeight);
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-  ctx.fillStyle = '#7a8ab0';
+  ctx.strokeStyle = THEME.axis;
+  ctx.fillStyle = THEME.textDim;
   ctx.font = '10px sans-serif';
   const drawTick = (yy) => {
     const py = yToPx(yy, L);
@@ -458,6 +480,8 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
   if (!s) return;
   const L = layoutArrows(logicalW, logicalH);
   ctx.clearRect(0, 0, L.w, L.h);
+  ctx.fillStyle = THEME.canvasBg;
+  ctx.fillRect(0, 0, L.w, L.h);
 
   const { lambda, a, z, Y, focusY, obstacleOn, M, fixedRange: R } = state;
   const toPy = (y) => L.cy - (y - focusY) * L.pxPerM;
@@ -466,12 +490,12 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
   if (obstacleOn) {
     const topPx = toPy(a / 2);
     const botPx = toPy(-a / 2);
-    ctx.fillStyle = 'rgba(91,98,115,0.35)';
+    ctx.fillStyle = THEME.obstacleShade;
     ctx.fillRect(0, topPx, L.w, botPx - topPx);
   }
 
   // 세로 기준선 (화살표들의 회전 중심축)
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.strokeStyle = THEME.axisFaint;
   ctx.beginPath();
   ctx.moveTo(L.cx, toPy(focusY + R));
   ctx.lineTo(L.cx, toPy(focusY - R));
@@ -482,21 +506,21 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
   if (yInView) {
     const py = toPy(Y);
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(255,85,119,0.85)';
+    ctx.strokeStyle = THEME.markerLine;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(0, py);
     ctx.lineTo(L.w, py);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#ff5577';
+    ctx.fillStyle = THEME.marker;
     ctx.font = '11px sans-serif';
     ctx.fillText('Y (관측점)', 6, py - 7);
   } else {
     const atTop = Y > focusY + R;
     const edgePy = atTop ? 10 : L.h - 10;
     const dist = Math.abs(Y - focusY) - R;
-    ctx.fillStyle = '#ff5577';
+    ctx.fillStyle = THEME.marker;
     ctx.font = 'bold 13px sans-serif';
     ctx.fillText(atTop ? '▲' : '▼', L.cx - 5, edgePy + (atTop ? 4 : 0));
     ctx.font = '11px sans-serif';
@@ -513,27 +537,27 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
 
     ctx.beginPath();
     ctx.arc(L.cx, py, 2, 0, Math.PI * 2);
-    ctx.fillStyle = blocked ? 'rgba(180,185,200,0.5)' : yToColor(y, s.halfHeight);
+    ctx.fillStyle = blocked ? THEME.blocked : yToColor(y, s.halfHeight);
     ctx.fill();
 
     const x0 = L.cx - dx * armLen, y0 = py - dy * armLen;
     const x1 = L.cx + dx * armLen, y1 = py + dy * armLen;
     drawArrow(ctx, x0, y0, x1, y1,
-      blocked ? 'rgba(150,155,170,0.45)' : yToColor(y, s.halfHeight),
+      blocked ? THEME.blocked : yToColor(y, s.halfHeight),
       blocked ? 1.2 : 2);
   }
 
   drawCenteredRuler(ctx, toPy, focusY, R);
 
-  ctx.fillStyle = '#7a8ab0';
+  ctx.fillStyle = THEME.textDim;
   ctx.font = '11px sans-serif';
   ctx.fillText(`표시 범위: ${formatLength(focusY)} ± ${formatLength(R)}`, 6, L.h - 8);
 }
 
 function drawCenteredRuler(ctx, toPy, center, halfRange) {
   const step = niceRulerStep(halfRange);
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-  ctx.fillStyle = '#7a8ab0';
+  ctx.strokeStyle = THEME.axis;
+  ctx.fillStyle = THEME.textDim;
   ctx.font = '10px sans-serif';
   const drawTick = (yy) => {
     const py = toPy(yy);
@@ -557,6 +581,8 @@ function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
   const ctx = canvas.getContext('2d');
   const w = logicalW, h = logicalH;
   ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = THEME.canvasBg;
+  ctx.fillRect(0, 0, w, h);
   const s = cache.scale;
   if (!s) return;
 
@@ -579,13 +605,13 @@ function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
   const toPx = (re, im) => [cx + re * scalePx, cyPx - im * scalePx];
 
   // 축
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.strokeStyle = THEME.axis;
   ctx.lineWidth = 1;
   let [ox, oy] = toPx(minRe, 0); let [ox2] = toPx(maxRe, 0);
   ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ox2, oy); ctx.stroke();
   let [oxv, oyv] = toPx(0, minIm); let [, oyv2] = toPx(0, maxIm);
   ctx.beginPath(); ctx.moveTo(oxv, oyv); ctx.lineTo(oxv, oyv2); ctx.stroke();
-  ctx.fillStyle = '#8ea0e8';
+  ctx.fillStyle = THEME.textDim;
   ctx.font = '10px sans-serif';
   ctx.fillText('Re', ox2 - 14, oy - 4);
   ctx.fillText('Im', oxv + 4, oyv2 + 10);
@@ -596,7 +622,7 @@ function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
     const [px, py] = toPx(p.re, p.im);
     if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
   });
-  ctx.strokeStyle = 'rgba(200,205,225,0.35)';
+  ctx.strokeStyle = THEME.refSpiral;
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
@@ -621,9 +647,9 @@ function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
     const [px, py] = toPx(edgePoint.re, edgePoint.im);
     ctx.beginPath();
     ctx.arc(px, py, 4, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = THEME.canvasBg;
     ctx.fill();
-    ctx.strokeStyle = '#000';
+    ctx.strokeStyle = THEME.text;
     ctx.stroke();
   }
 
@@ -632,13 +658,12 @@ function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
     const end = path[path.length - 1];
     const [ex, ey] = toPx(end.re, end.im);
     const [origx, origy] = toPx(0, 0);
-    drawArrow(ctx, origx, origy, ex, ey, '#1a1a1a', 2.6);
-    drawArrow(ctx, origx, origy, ex, ey, '#ffffff', 1.2);
+    drawArrow(ctx, origx, origy, ex, ey, THEME.text, 2.2);
 
     const mag = Math.sqrt(end.re * end.re + end.im * end.im);
     const refMag = Math.sqrt(reference.total.re ** 2 + reference.total.im ** 2);
     const relIntensity = (mag * mag) / (refMag * refMag);
-    ctx.fillStyle = '#e8ebf5';
+    ctx.fillStyle = THEME.text;
     ctx.font = '12px sans-serif';
     ctx.fillText(`|합| = ${mag.toExponential(2)}`, 8, h - 28);
     ctx.fillText(`상대 세기 I/I₀ = ${relIntensity.toFixed(3)}`, 8, h - 12);

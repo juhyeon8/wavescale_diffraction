@@ -695,6 +695,61 @@ function drawAll() {
 }
 
 /* =========================================================================
+   패널 캡처 (논문용 이미지 저장)
+   ========================================================================= */
+const PANEL_CONFIG = {
+  panel1: { index: 1, name: 'main', canvas: () => el.mainCanvas, draw: (c, w, h) => drawMainView(c, w, h, 0) },
+  panel2: { index: 2, name: 'arrows', canvas: () => el.arrowsCanvas, draw: (c, w, h) => drawPhasorArrows(c, w, h) },
+  panel3: { index: 3, name: 'cornu', canvas: () => el.phasorCanvas, draw: (c, w, h) => drawPhasor(c, w, h, 1) },
+};
+
+// formatLength()에서 파생시켜 입력창/파일명이 서로 다른 반올림 규칙을
+// 갖지 않게 한다. µ는 파일시스템/URL에 안전하지 않아 u로 치환한다.
+function slugLength(meters) {
+  return formatLength(meters)
+    .replace(/\s+/g, '')
+    .replace(/µ/g, 'u')
+    .replace(/\.?0+(?=[a-z])/i, '');
+}
+
+function buildFilename(panelKey, scale, ext) {
+  const cfg = PANEL_CONFIG[panelKey];
+  return `panel${cfg.index}_${cfg.name}_lambda${slugLength(state.lambda)}_a${slugLength(state.a)}_z${slugLength(state.z)}_${scale}x.${ext}`;
+}
+
+// 화면 캔버스는 건드리지 않고 별도 오프스크린 캔버스에 그린다. 물리 픽셀
+// 크기만 scale배로 키우고 ctx.scale(scale,scale)을 걸어, draw 함수에는
+// 항상 원본(논리) 크기를 넘긴다 — 좌표가 이중으로 커지는 것을 막는다.
+function renderPanelToCanvas(panelKey, scale) {
+  const cfg = PANEL_CONFIG[panelKey];
+  const srcCanvas = cfg.canvas();
+  const logicalW = srcCanvas.width, logicalH = srcCanvas.height;
+  const off = document.createElement('canvas');
+  off.width = Math.round(logicalW * scale);
+  off.height = Math.round(logicalH * scale);
+  const ctx = off.getContext('2d');
+  ctx.scale(scale, scale);
+  cfg.draw(off, logicalW, logicalH);
+  return off;
+}
+
+function savePanel(panelKey, scale, format, quality) {
+  const off = renderPanelToCanvas(panelKey, scale);
+  const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+  off.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = buildFilename(panelKey, scale, format === 'jpeg' ? 'jpg' : 'png');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, mime, format === 'jpeg' ? quality : undefined);
+}
+
+/* =========================================================================
    캔버스 크기 조정
    ========================================================================= */
 function resizeCanvas(canvas) {

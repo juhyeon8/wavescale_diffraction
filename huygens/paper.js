@@ -286,6 +286,12 @@ const el = {
   paperSaveAll: document.getElementById('paper-save-all'),
   paperFontScaleSlider: document.getElementById('paper-fontscale-slider'),
   paperFontScaleReadout: document.getElementById('paper-fontscale-readout'),
+  paperLambdaInput: document.getElementById('paper-lambda-input'),
+  paperLambdaUnit: document.getElementById('paper-lambda-unit'),
+  paperAInput: document.getElementById('paper-a-input'),
+  paperAUnit: document.getElementById('paper-a-unit'),
+  paperZInput: document.getElementById('paper-z-input'),
+  paperZUnit: document.getElementById('paper-z-unit'),
 };
 
 function updateReadouts() {
@@ -836,6 +842,7 @@ function resizeAllCanvases() {
    ========================================================================= */
 function onParamChange() {
   updateReadouts();
+  syncDirectInputs();
   scheduleRecompute(120);
 }
 
@@ -911,7 +918,42 @@ function setSlidersFromState() {
   }
   updateReadouts();
   updateArrowsNote();
+  syncDirectInputs();
 }
+
+// 타이핑 중인 입력창은 절대 덮어쓰지 않는다 — formatLength 재포맷으로
+// 인한 "500 입력 -> 499.9 표시" 같은 라운드트립 드리프트를 막기 위함.
+function updateDirectInputDisplay(inputEl, unitEl, meters) {
+  if (document.activeElement === inputEl) return;
+  inputEl.value = +(meters / parseFloat(unitEl.value)).toPrecision(6);
+}
+function syncDirectInputs() {
+  updateDirectInputDisplay(el.paperLambdaInput, el.paperLambdaUnit, state.lambda);
+  updateDirectInputDisplay(el.paperAInput, el.paperAUnit, state.a);
+  updateDirectInputDisplay(el.paperZInput, el.paperZUnit, state.z);
+}
+// rangeKey는 RANGES/state의 키와 1:1로 같다('lambda'|'a'|'z').
+function setupDirectInput(inputEl, unitEl, rangeKey, applyValue) {
+  function apply() {
+    const raw = parseFloat(inputEl.value);
+    if (!Number.isFinite(raw)) return; // 파싱 안 되는 중간 입력은 무시(값도, 입력창도 안 건드림)
+    const meters = raw * parseFloat(unitEl.value);
+    const range = RANGES[rangeKey];
+    const clamped = Math.min(range.max, Math.max(range.min, meters));
+    applyValue(clamped);
+    onParamChange();
+  }
+  function commitAndCorrect() {
+    apply();
+    inputEl.value = +(state[rangeKey] / parseFloat(unitEl.value)).toPrecision(6);
+  }
+  inputEl.addEventListener('input', apply);       // 타이핑 중: 유효하면 즉시 반영, 표시는 안 건드림
+  inputEl.addEventListener('change', commitAndCorrect); // 블러/엔터: clamp된 값으로 표시 보정
+  unitEl.addEventListener('change', commitAndCorrect);
+}
+setupDirectInput(el.paperLambdaInput, el.paperLambdaUnit, 'lambda', v => { state.lambda = v; });
+setupDirectInput(el.paperAInput, el.paperAUnit, 'a', v => { state.a = v; });
+setupDirectInput(el.paperZInput, el.paperZUnit, 'z', v => { state.z = v; });
 
 function applyUrlParams() {
   const p = new URLSearchParams(window.location.search);

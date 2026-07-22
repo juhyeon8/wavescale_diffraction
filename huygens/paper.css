@@ -232,3 +232,22 @@ input[type="range"] {
   grid-column: 1 / -1;
   font-weight: 600;
 }
+
+.paper-direct-input {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.paper-direct-input input[type="number"] {
+  width: 90px;
+  padding: 3px 6px;
+  border: 1px solid #b7bede;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+.paper-direct-input select {
+  padding: 3px 4px;
+  border: 1px solid #b7bede;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}

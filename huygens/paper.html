@@ -70,16 +70,46 @@
         파장 &lambda; <span class="readout" id="lambda-readout"></span>
       </label>
       <input type="range" id="lambda-slider" min="0" max="1000" step="1">
+      <div class="paper-direct-input">
+        <input type="number" id="paper-lambda-input" step="any">
+        <select id="paper-lambda-unit">
+          <option value="1e-9" selected>nm</option>
+          <option value="1e-6">µm</option>
+          <option value="1e-3">mm</option>
+          <option value="1e-2">cm</option>
+          <option value="1">m</option>
+        </select>
+      </div>
 
       <label class="slider-label">
         장애물 폭 a <span class="readout" id="a-readout"></span>
       </label>
       <input type="range" id="a-slider" min="0" max="1000" step="1">
+      <div class="paper-direct-input">
+        <input type="number" id="paper-a-input" step="any">
+        <select id="paper-a-unit">
+          <option value="1e-9">nm</option>
+          <option value="1e-6">µm</option>
+          <option value="1e-3" selected>mm</option>
+          <option value="1e-2">cm</option>
+          <option value="1">m</option>
+        </select>
+      </div>
 
       <label class="slider-label">
         장애물&ndash;스크린 거리 z <span class="readout" id="z-readout"></span>
       </label>
       <input type="range" id="z-slider" min="0" max="1000" step="1">
+      <div class="paper-direct-input">
+        <input type="number" id="paper-z-input" step="any">
+        <select id="paper-z-unit">
+          <option value="1e-9">nm</option>
+          <option value="1e-6">µm</option>
+          <option value="1e-3">mm</option>
+          <option value="1e-2">cm</option>
+          <option value="1" selected>m</option>
+        </select>
+      </div>
 
       <label class="slider-label">
         위상자 촘촘함 N (코르누 나선) <span class="readout" id="n-readout"></span>

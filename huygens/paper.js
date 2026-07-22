@@ -18,6 +18,7 @@ const state = {
   dragging: false,
   animPlaying: false,
   animFrame: 0,
+  fontScale: 1.0,   // 캔버스 폰트 배율 (0.8~2.0) — 저장 배율과 별개로 "화면 상대 크기"만 조절
 };
 
 const THEME = {
@@ -74,6 +75,10 @@ function formatLength(meters) {
   if (abs >= 1e-3) return (meters * 1e3).toFixed(abs * 1e3 >= 10 ? 1 : 3) + ' mm';
   if (abs >= 1e-6) return (meters * 1e6).toFixed(abs * 1e6 >= 10 ? 1 : 3) + ' µm';
   return (meters * 1e9).toFixed(1) + ' nm';
+}
+
+function fontPx(base, weight) {
+  return (weight ? weight + ' ' : '') + (base * state.fontScale) + 'px sans-serif';
 }
 
 /* =========================================================================
@@ -279,6 +284,8 @@ const el = {
   paperSavePanel2: document.getElementById('paper-save-panel2'),
   paperSavePanel3: document.getElementById('paper-save-panel3'),
   paperSaveAll: document.getElementById('paper-save-all'),
+  paperFontScaleSlider: document.getElementById('paper-fontscale-slider'),
+  paperFontScaleReadout: document.getElementById('paper-fontscale-readout'),
 };
 
 function updateReadouts() {
@@ -350,7 +357,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   }
   ctx.restore();
   ctx.fillStyle = THEME.textDim;
-  ctx.font = '11px sans-serif';
+  ctx.font = fontPx(16);
   ctx.fillText('입사 평면파 (선 간격 = 파장 λ' + (waveSpacingClamped ? ' · 범위 제한' : '') + ')', 8, 14);
 
   // 색 띠 (입사 파면 단면, 장애물 직전) — 어느 y가 어느 색인지 표시
@@ -376,7 +383,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
     ctx.lineWidth = 1.5;
     ctx.strokeRect(barX - 7, topPx, 14, botPx - topPx);
     ctx.fillStyle = THEME.rangeBox;
-    ctx.font = '10px sans-serif';
+    ctx.font = fontPx(16);
     ctx.fillText('②범위', barX + 10, topPx - 2);
   }
 
@@ -390,7 +397,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
     ctx.strokeRect(L.xObstacle - 7, topPx, 14, botPx - topPx);
   }
   ctx.fillStyle = THEME.textDim;
-  ctx.font = '11px sans-serif';
+  ctx.font = fontPx(16);
   ctx.fillText('장애물 (폭 ' + formatLength(state.a) + ')', L.xObstacle - 40, yToPx(s.halfHeight, L) - 6);
 
   // 기하광학적 그림자 경계 (점선)
@@ -453,14 +460,14 @@ function drawRuler(ctx, L, s) {
   const step = niceRulerStep(s.halfHeight);
   ctx.strokeStyle = THEME.axis;
   ctx.fillStyle = THEME.textDim;
-  ctx.font = '10px sans-serif';
+  ctx.font = fontPx(16);
   const drawTick = (yy) => {
     const py = yToPx(yy, L);
     ctx.beginPath();
     ctx.moveTo(4, py);
     ctx.lineTo(10, py);
     ctx.stroke();
-    ctx.fillText(formatLength(yy), 13, py + 3);
+    ctx.fillText(formatLength(yy), 18, py + 3);
   };
   drawTick(0);
   for (let y = step; y <= s.halfHeight; y += step) {
@@ -523,17 +530,17 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = THEME.marker;
-    ctx.font = '11px sans-serif';
-    ctx.fillText('Y (관측점)', 6, py - 7);
+    ctx.font = fontPx(16);
+    ctx.fillText('Y (관측점)', 6, py - 10);
   } else {
     const atTop = Y > focusY + R;
     const edgePy = atTop ? 10 : L.h - 10;
     const dist = Math.abs(Y - focusY) - R;
     ctx.fillStyle = THEME.marker;
-    ctx.font = 'bold 13px sans-serif';
+    ctx.font = fontPx(18, 'bold');
     ctx.fillText(atTop ? '▲' : '▼', L.cx - 5, edgePy + (atTop ? 4 : 0));
-    ctx.font = '11px sans-serif';
-    ctx.fillText(`Y는 이 방향으로 ${formatLength(dist)} 더 (범위 밖)`, 6, edgePy + (atTop ? 4 : 0));
+    ctx.font = fontPx(16);
+    ctx.fillText(`Y는 이 방향으로 ${formatLength(dist)} 더 (범위 밖)`, 6, edgePy + (atTop ? 14 : -8));
   }
 
   const armLen = Math.min(26, (L.h * 0.85) / M / 2 + 6);
@@ -559,7 +566,7 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
   drawCenteredRuler(ctx, toPy, focusY, R);
 
   ctx.fillStyle = THEME.textDim;
-  ctx.font = '11px sans-serif';
+  ctx.font = fontPx(16);
   ctx.fillText(`표시 범위: ${formatLength(focusY)} ± ${formatLength(R)}`, 6, L.h - 8);
 }
 
@@ -567,14 +574,14 @@ function drawCenteredRuler(ctx, toPy, center, halfRange) {
   const step = niceRulerStep(halfRange);
   ctx.strokeStyle = THEME.axis;
   ctx.fillStyle = THEME.textDim;
-  ctx.font = '10px sans-serif';
+  ctx.font = fontPx(16);
   const drawTick = (yy) => {
     const py = toPy(yy);
     ctx.beginPath();
     ctx.moveTo(4, py);
     ctx.lineTo(10, py);
     ctx.stroke();
-    ctx.fillText(formatLength(yy), 13, py + 3);
+    ctx.fillText(formatLength(yy), 18, py + 3);
   };
   drawTick(center);
   for (let d = step; d <= halfRange; d += step) {
@@ -621,9 +628,9 @@ function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
   let [oxv, oyv] = toPx(0, minIm); let [, oyv2] = toPx(0, maxIm);
   ctx.beginPath(); ctx.moveTo(oxv, oyv); ctx.lineTo(oxv, oyv2); ctx.stroke();
   ctx.fillStyle = THEME.textDim;
-  ctx.font = '10px sans-serif';
-  ctx.fillText('Re', ox2 - 14, oy - 4);
-  ctx.fillText('Im', oxv + 4, oyv2 + 10);
+  ctx.font = fontPx(16);
+  ctx.fillText('Re', ox2 - 20, oy - 6);
+  ctx.fillText('Im', oxv + 6, oyv2 + 16);
 
   // 기준 나선 (회색)
   ctx.beginPath();
@@ -673,8 +680,8 @@ function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
     const refMag = Math.sqrt(reference.total.re ** 2 + reference.total.im ** 2);
     const relIntensity = (mag * mag) / (refMag * refMag);
     ctx.fillStyle = THEME.text;
-    ctx.font = '12px sans-serif';
-    ctx.fillText(`|합| = ${mag.toExponential(2)}`, 8, h - 28);
+    ctx.font = fontPx(18, 'bold');
+    ctx.fillText(`|합| = ${mag.toExponential(2)}`, 8, h - 34);
     ctx.fillText(`상대 세기 I/I₀ = ${relIntensity.toFixed(3)}`, 8, h - 12);
   }
 }
@@ -962,6 +969,12 @@ el.paperSaveAll.addEventListener('click', () => {
   ['panel1', 'panel2', 'panel3'].forEach((key, i) => {
     setTimeout(() => savePanel(key, o.scale, o.format, o.quality), i * 300);
   });
+});
+
+el.paperFontScaleSlider.addEventListener('input', () => {
+  state.fontScale = parseFloat(el.paperFontScaleSlider.value);
+  el.paperFontScaleReadout.textContent = state.fontScale.toFixed(2) + '×';
+  drawAll();
 });
 
 /* =========================================================================

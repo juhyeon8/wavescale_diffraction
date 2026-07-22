@@ -398,7 +398,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   }
   ctx.fillStyle = THEME.textDim;
   ctx.font = fontPx(16);
-  ctx.fillText('장애물 (폭 ' + formatLength(state.a) + ')', L.xObstacle - 40, yToPx(s.halfHeight, L) - 6);
+  ctx.fillText('장애물 (폭 ' + formatLength(state.a) + ')', L.xObstacle - 40, yToPx(s.halfHeight, L) - 6 + 18 * (state.fontScale - 1));
 
   // 기하광학적 그림자 경계 (점선)
   if (state.obstacleOn) {
@@ -519,6 +519,7 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
 
   // 현재 관측점 Y — focusY±R 범위 안에 있으면 그 위치에 점선으로, 밖이면 가장자리에 방향 표시
   const yInView = Y >= focusY - R && Y <= focusY + R;
+  let markerLabelPy = null;
   if (yInView) {
     const py = toPy(Y);
     ctx.setLineDash([4, 4]);
@@ -529,9 +530,9 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
     ctx.lineTo(L.w, py);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = THEME.marker;
-    ctx.font = fontPx(16);
-    ctx.fillText('Y (관측점)', 6, py - 10);
+    // 라벨 텍스트 자체는 눈금(ruler)보다 나중에 그려야 폰트 배율이 커졌을 때
+    // 눈금 숫자와 겹치지 않고 위에 온전히 보인다 (아래 drawCenteredRuler 호출 직후 렌더링).
+    markerLabelPy = py;
   } else {
     const atTop = Y > focusY + R;
     const edgePy = atTop ? 10 : L.h - 10;
@@ -565,9 +566,26 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
 
   drawCenteredRuler(ctx, toPy, focusY, R);
 
+  // 관측점 라벨 — 눈금(ruler)을 그린 "뒤"에 그려서, 폰트가 커져 눈금 숫자와
+  // 자리가 겹치더라도 라벨이 항상 눈금 위에 온전히 보이도록 한다(뒷배경을 깔아 가림).
+  if (markerLabelPy !== null) {
+    ctx.font = fontPx(16);
+    const label = 'Y (관측점)';
+    const m = ctx.measureText(label);
+    ctx.fillStyle = THEME.canvasBg;
+    ctx.fillRect(4, markerLabelPy - 10 - m.actualBoundingBoxAscent - 2, m.width + 6, m.actualBoundingBoxAscent + m.actualBoundingBoxDescent + 4);
+    ctx.fillStyle = THEME.marker;
+    ctx.fillText(label, 6, markerLabelPy - 10);
+  }
+
   ctx.fillStyle = THEME.textDim;
   ctx.font = fontPx(16);
-  ctx.fillText(`표시 범위: ${formatLength(focusY)} ± ${formatLength(R)}`, 6, L.h - 8);
+  const rangeLabel = `표시 범위: ${formatLength(focusY)} ± ${formatLength(R)}`;
+  const rm = ctx.measureText(rangeLabel);
+  ctx.fillStyle = THEME.canvasBg;
+  ctx.fillRect(4, L.h - 8 - rm.actualBoundingBoxAscent - 2, rm.width + 6, rm.actualBoundingBoxAscent + rm.actualBoundingBoxDescent + 4);
+  ctx.fillStyle = THEME.textDim;
+  ctx.fillText(rangeLabel, 6, L.h - 8);
 }
 
 function drawCenteredRuler(ctx, toPy, center, halfRange) {
@@ -681,7 +699,7 @@ function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
     const relIntensity = (mag * mag) / (refMag * refMag);
     ctx.fillStyle = THEME.text;
     ctx.font = fontPx(18, 'bold');
-    ctx.fillText(`|합| = ${mag.toExponential(2)}`, 8, h - 34);
+    ctx.fillText(`|합| = ${mag.toExponential(2)}`, 8, h - 12 - 22 * state.fontScale);
     ctx.fillText(`상대 세기 I/I₀ = ${relIntensity.toFixed(3)}`, 8, h - 12);
   }
 }

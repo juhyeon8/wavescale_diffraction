@@ -933,7 +933,7 @@ function syncDirectInputs() {
   updateDirectInputDisplay(el.paperZInput, el.paperZUnit, state.z);
 }
 // rangeKey는 RANGES/state의 키와 1:1로 같다('lambda'|'a'|'z').
-function setupDirectInput(inputEl, unitEl, rangeKey, applyValue) {
+function setupDirectInput(inputEl, unitEl, rangeKey, sliderEl, applyValue) {
   function apply() {
     const raw = parseFloat(inputEl.value);
     if (!Number.isFinite(raw)) return; // 파싱 안 되는 중간 입력은 무시(값도, 입력창도 안 건드림)
@@ -941,6 +941,7 @@ function setupDirectInput(inputEl, unitEl, rangeKey, applyValue) {
     const range = RANGES[rangeKey];
     const clamped = Math.min(range.max, Math.max(range.min, meters));
     applyValue(clamped);
+    sliderEl.value = valueToSlider(clamped, range.min, range.max); // 입력창 -> 슬라이더 위치 동기화
     onParamChange();
   }
   function commitAndCorrect() {
@@ -951,9 +952,9 @@ function setupDirectInput(inputEl, unitEl, rangeKey, applyValue) {
   inputEl.addEventListener('change', commitAndCorrect); // 블러/엔터: clamp된 값으로 표시 보정
   unitEl.addEventListener('change', commitAndCorrect);
 }
-setupDirectInput(el.paperLambdaInput, el.paperLambdaUnit, 'lambda', v => { state.lambda = v; });
-setupDirectInput(el.paperAInput, el.paperAUnit, 'a', v => { state.a = v; });
-setupDirectInput(el.paperZInput, el.paperZUnit, 'z', v => { state.z = v; });
+setupDirectInput(el.paperLambdaInput, el.paperLambdaUnit, 'lambda', el.lambdaSlider, v => { state.lambda = v; });
+setupDirectInput(el.paperAInput, el.paperAUnit, 'a', el.aSlider, v => { state.a = v; });
+setupDirectInput(el.paperZInput, el.paperZUnit, 'z', el.zSlider, v => { state.z = v; });
 
 function applyUrlParams() {
   const p = new URLSearchParams(window.location.search);

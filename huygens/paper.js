@@ -358,7 +358,12 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   ctx.restore();
   ctx.fillStyle = THEME.textDim;
   ctx.font = fontPx(16);
-  ctx.fillText('입사 평면파 (선 간격 = 파장 λ' + (waveSpacingClamped ? ' · 범위 제한' : '') + ')', 8, 14 + 16 * (state.fontScale - 1));
+  const waveLabelText = '입사 평면파 (선 간격 = 파장 λ' + (waveSpacingClamped ? ' · 범위 제한' : '') + ')';
+  const waveLabelMetrics = ctx.measureText(waveLabelText);
+  const waveLabelY = waveLabelMetrics.actualBoundingBoxAscent + 4;
+  ctx.fillText(waveLabelText, 8, waveLabelY);
+  const waveLabelBottom = waveLabelY + waveLabelMetrics.actualBoundingBoxDescent + 4;
+  const waveLabelRight = 8 + waveLabelMetrics.width;
 
   // 색 띠 (입사 파면 단면, 장애물 직전) — 어느 y가 어느 색인지 표시
   const barX = L.xObstacle - 10;
@@ -398,7 +403,15 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   }
   ctx.fillStyle = THEME.textDim;
   ctx.font = fontPx(16);
-  ctx.fillText('장애물 (폭 ' + formatLength(state.a) + ')', L.xObstacle - 40, yToPx(s.halfHeight, L) - 6 + 18 * (state.fontScale - 1));
+  const obstacleLabelText = '장애물 (폭 ' + formatLength(state.a) + ')';
+  const obstacleLabelX = L.xObstacle - 40;
+  const obstacleLabelMetrics = ctx.measureText(obstacleLabelText);
+  let obstacleLabelY = yToPx(s.halfHeight, L) - 6;
+  const xOverlaps = obstacleLabelX < waveLabelRight && (obstacleLabelX + obstacleLabelMetrics.width) > 8;
+  if (xOverlaps && (obstacleLabelY - obstacleLabelMetrics.actualBoundingBoxAscent) < waveLabelBottom) {
+    obstacleLabelY = waveLabelBottom + obstacleLabelMetrics.actualBoundingBoxAscent;
+  }
+  ctx.fillText(obstacleLabelText, obstacleLabelX, obstacleLabelY);
 
   // 기하광학적 그림자 경계 (점선)
   if (state.obstacleOn) {

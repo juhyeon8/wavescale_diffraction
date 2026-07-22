@@ -199,3 +199,36 @@ input[type="range"] {
   .controls { position: static; }
   .panel-row { grid-template-columns: 1fr; }
 }
+
+.paper-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 0.82rem;
+}
+.paper-row select {
+  margin-left: 4px;
+}
+.paper-capture-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 10px;
+}
+.paper-capture-buttons button {
+  background: #e4e7f4;
+  color: #1a1a1a;
+  border: 1px solid #b7bede;
+  border-radius: 6px;
+  padding: 7px 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.paper-capture-buttons button:hover {
+  background: #d3d8ee;
+}
+#paper-save-all {
+  grid-column: 1 / -1;
+  font-weight: 600;
+}

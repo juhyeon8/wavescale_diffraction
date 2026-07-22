@@ -270,6 +270,15 @@ const el = {
   arrowsCanvas: document.getElementById('arrowsCanvas'),
   phasorCanvas: document.getElementById('phasorCanvas'),
   arrowsNote: document.getElementById('arrows-note'),
+  paperScaleSelect: document.getElementById('paper-scale-select'),
+  paperFormatSelect: document.getElementById('paper-format-select'),
+  paperQualityRow: document.getElementById('paper-quality-row'),
+  paperQualitySlider: document.getElementById('paper-quality-slider'),
+  paperQualityReadout: document.getElementById('paper-quality-readout'),
+  paperSavePanel1: document.getElementById('paper-save-panel1'),
+  paperSavePanel2: document.getElementById('paper-save-panel2'),
+  paperSavePanel3: document.getElementById('paper-save-panel3'),
+  paperSaveAll: document.getElementById('paper-save-all'),
 };
 
 function updateReadouts() {
@@ -920,6 +929,39 @@ function attachScreenInteraction() {
 el.animateBtn.addEventListener('click', () => {
   state.animPlaying = true;
   state.animFrame = 0;
+});
+
+// 패널 캡처 버튼
+function getCaptureOptions() {
+  return {
+    scale: parseInt(el.paperScaleSelect.value, 10),
+    format: el.paperFormatSelect.value,
+    quality: parseFloat(el.paperQualitySlider.value),
+  };
+}
+el.paperFormatSelect.addEventListener('change', () => {
+  el.paperQualityRow.style.display = el.paperFormatSelect.value === 'jpeg' ? 'block' : 'none';
+});
+el.paperQualitySlider.addEventListener('input', () => {
+  el.paperQualityReadout.textContent = el.paperQualitySlider.value;
+});
+el.paperSavePanel1.addEventListener('click', () => {
+  const o = getCaptureOptions();
+  savePanel('panel1', o.scale, o.format, o.quality);
+});
+el.paperSavePanel2.addEventListener('click', () => {
+  const o = getCaptureOptions();
+  savePanel('panel2', o.scale, o.format, o.quality);
+});
+el.paperSavePanel3.addEventListener('click', () => {
+  const o = getCaptureOptions();
+  savePanel('panel3', o.scale, o.format, o.quality);
+});
+el.paperSaveAll.addEventListener('click', () => {
+  const o = getCaptureOptions();
+  ['panel1', 'panel2', 'panel3'].forEach((key, i) => {
+    setTimeout(() => savePanel(key, o.scale, o.format, o.quality), i * 300);
+  });
 });
 
 /* =========================================================================

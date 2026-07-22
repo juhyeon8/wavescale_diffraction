@@ -364,7 +364,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   ctx.restore();
   ctx.fillStyle = THEME.textDim;
   ctx.font = fontPx(16);
-  const waveLabelText = '입사 평면파 (선 간격 = 파장 λ' + (waveSpacingClamped ? ' · 범위 제한' : '') + ')';
+  const waveLabelText = '입사 평면파 (선 간격 = 파장 λ)';
   const waveLabelMetrics = ctx.measureText(waveLabelText);
   const waveLabelY = waveLabelMetrics.actualBoundingBoxAscent + 4;
   ctx.fillText(waveLabelText, 8, waveLabelY);
@@ -679,16 +679,6 @@ function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
   ctx.font = fontPx(16);
   ctx.fillText('Re', ox2 - 20, oy - 6);
   ctx.fillText('Im', oxv + 6, oyv2 + 16);
-
-  // 기준 나선 (회색)
-  ctx.beginPath();
-  reference.path.forEach((p, i) => {
-    const [px, py] = toPx(p.re, p.im);
-    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-  });
-  ctx.strokeStyle = THEME.refSpiral;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
 
   // 실제 경로 (색상, revealFraction 만큼만 그림 - 애니메이션용)
   const path = colored.path;

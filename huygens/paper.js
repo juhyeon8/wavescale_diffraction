@@ -283,8 +283,8 @@ function updateScaleTable() {
 /* =========================================================================
    메인 뷰 렌더링
    ========================================================================= */
-function layoutMain(canvas) {
-  const w = canvas.width, h = canvas.height;
+function layoutMain(logicalW, logicalH) {
+  const w = logicalW, h = logicalH;
   const s = cache.scale;
   const xObstacle = w * 0.40;
   const xScreen = w * 0.82;
@@ -294,11 +294,10 @@ function layoutMain(canvas) {
 }
 function yToPx(y, L) { return L.cy - y * L.pxPerM; }
 
-function drawMainView() {
-  const canvas = el.mainCanvas;
+function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   const ctx = canvas.getContext('2d');
   const s = cache.scale;
-  const L = layoutMain(canvas);
+  const L = layoutMain(logicalW, logicalH);
   ctx.clearRect(0, 0, L.w, L.h);
 
   // 입사 평면파 — 선 간격 = 파장 λ. 장애물 색 띠와 같은 세로 스케일(L.pxPerM)을
@@ -312,7 +311,7 @@ function drawMainView() {
   const waveSpacingClamped = waveSpacing !== rawWaveSpacing;
   ctx.strokeStyle = 'rgba(120,170,255,0.55)';
   ctx.lineWidth = 1.5;
-  for (let x = -waveSpacing + (wavePhase % waveSpacing); x < L.xObstacle + waveSpacing; x += waveSpacing) {
+  for (let x = -waveSpacing + (wavePhaseValue % waveSpacing); x < L.xObstacle + waveSpacing; x += waveSpacing) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, L.h);
@@ -445,20 +444,19 @@ function drawRuler(ctx, L, s) {
    화살표들이 서로 비슷한 방향이면 상쇄되지 않고 더해져서 살아남고,
    방향이 빠르게 회전하면 서로 상쇄되어 사라진다.
    ========================================================================= */
-function layoutArrows(canvas) {
-  const w = canvas.width, h = canvas.height;
+function layoutArrows(logicalW, logicalH) {
+  const w = logicalW, h = logicalH;
   const pxPerM = (h * 0.42) / state.fixedRange;
   const cx = w * 0.58;
   const cy = h * 0.5;
   return { w, h, cx, cy, pxPerM };
 }
 
-function drawPhasorArrows() {
-  const canvas = el.arrowsCanvas;
+function drawPhasorArrows(canvas, logicalW, logicalH) {
   const ctx = canvas.getContext('2d');
   const s = cache.scale;
   if (!s) return;
-  const L = layoutArrows(canvas);
+  const L = layoutArrows(logicalW, logicalH);
   ctx.clearRect(0, 0, L.w, L.h);
 
   const { lambda, a, z, Y, focusY, obstacleOn, M, fixedRange: R } = state;
@@ -555,10 +553,9 @@ function drawCenteredRuler(ctx, toPy, center, halfRange) {
 /* =========================================================================
    위상자(코르누 나선) 다이어그램
    ========================================================================= */
-function drawPhasor(revealFraction) {
-  const canvas = el.phasorCanvas;
+function drawPhasor(canvas, logicalW, logicalH, revealFraction) {
   const ctx = canvas.getContext('2d');
-  const w = canvas.width, h = canvas.height;
+  const w = logicalW, h = logicalH;
   ctx.clearRect(0, 0, w, h);
   const s = cache.scale;
   if (!s) return;
@@ -667,9 +664,9 @@ function drawArrow(ctx, x0, y0, x1, y1, color, width) {
 }
 
 function drawAll() {
-  drawMainView();
-  drawPhasorArrows();
-  drawPhasor(1);
+  drawMainView(el.mainCanvas, el.mainCanvas.width, el.mainCanvas.height, wavePhase);
+  drawPhasorArrows(el.arrowsCanvas, el.arrowsCanvas.width, el.arrowsCanvas.height);
+  drawPhasor(el.phasorCanvas, el.phasorCanvas.width, el.phasorCanvas.height, 1);
 }
 
 /* =========================================================================
@@ -711,14 +708,14 @@ el.nSlider.addEventListener('input', () => {
 el.mSlider.addEventListener('input', () => {
   state.M = +el.mSlider.value;
   updateReadouts();
-  drawPhasorArrows();
+  drawPhasorArrows(el.arrowsCanvas, el.arrowsCanvas.width, el.arrowsCanvas.height);
 });
 el.rangeSlider.addEventListener('input', () => {
   state.fixedRange = sliderToValue(+el.rangeSlider.value, RANGES.fixedRange.min, RANGES.fixedRange.max);
   updateReadouts();
   updateArrowsNote();
-  drawMainView();
-  drawPhasorArrows();
+  drawMainView(el.mainCanvas, el.mainCanvas.width, el.mainCanvas.height, wavePhase);
+  drawPhasorArrows(el.arrowsCanvas, el.arrowsCanvas.width, el.arrowsCanvas.height);
 });
 el.obstacleToggle.addEventListener('change', () => {
   state.obstacleOn = el.obstacleToggle.checked;
@@ -798,7 +795,7 @@ function attachScreenInteraction() {
   function clientToY(evt) {
     const rect = canvas.getBoundingClientRect();
     const py = (evt.clientY - rect.top);
-    const L = layoutMain(canvas);
+    const L = layoutMain(canvas.width, canvas.height);
     const s = cache.scale;
     return Math.max(-s.halfHeight, Math.min(s.halfHeight, (L.cy - py) / L.pxPerM));
   }
@@ -808,33 +805,29 @@ function attachScreenInteraction() {
   }
 
   canvas.addEventListener('pointerdown', (e) => {
-    const L = layoutMain(canvas);
+    const L = layoutMain(canvas.width, canvas.height);
     if (Math.abs(clientToPx(e) - L.xScreen) <= SCREEN_DRAG_MARGIN) {
       state.dragging = true;
       state.Y = clientToY(e);
-      drawMainView();
-      drawPhasorArrows();
-      drawPhasor(1);
+      drawAll();
     }
   });
   window.addEventListener('pointermove', (e) => {
     if (!state.dragging) return;
     state.Y = clientToY(e);
-    drawMainView();
-    drawPhasorArrows();
-    drawPhasor(1);
+    drawAll();
   });
   window.addEventListener('pointerup', () => { state.dragging = false; });
 
   canvas.addEventListener('pointermove', (e) => {
     if (state.dragging) return;
-    const L = layoutMain(canvas);
+    const L = layoutMain(canvas.width, canvas.height);
     const px = clientToPx(e);
     if (px <= L.xObstacle + FOCUS_HOVER_MARGIN) {
       canvas.style.cursor = 'crosshair';
       state.focusY = clientToY(e);
-      drawMainView();
-      drawPhasorArrows();
+      drawMainView(el.mainCanvas, el.mainCanvas.width, el.mainCanvas.height, wavePhase);
+      drawPhasorArrows(el.arrowsCanvas, el.arrowsCanvas.width, el.arrowsCanvas.height);
     } else if (Math.abs(px - L.xScreen) <= SCREEN_DRAG_MARGIN) {
       canvas.style.cursor = 'ns-resize';
     } else {
@@ -854,12 +847,12 @@ el.animateBtn.addEventListener('click', () => {
    ========================================================================= */
 function tick() {
   wavePhase += 0.6;
-  drawMainView();
+  drawMainView(el.mainCanvas, el.mainCanvas.width, el.mainCanvas.height, wavePhase);
 
   if (state.animPlaying) {
     state.animFrame += 1;
     const frac = Math.min(1, state.animFrame / 90);
-    drawPhasor(frac);
+    drawPhasor(el.phasorCanvas, el.phasorCanvas.width, el.phasorCanvas.height, frac);
     if (frac >= 1) state.animPlaying = false;
   }
 

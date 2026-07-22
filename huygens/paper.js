@@ -358,7 +358,7 @@ function drawMainView(canvas, logicalW, logicalH, wavePhaseValue) {
   ctx.restore();
   ctx.fillStyle = THEME.textDim;
   ctx.font = fontPx(16);
-  ctx.fillText('입사 평면파 (선 간격 = 파장 λ' + (waveSpacingClamped ? ' · 범위 제한' : '') + ')', 8, 14);
+  ctx.fillText('입사 평면파 (선 간격 = 파장 λ' + (waveSpacingClamped ? ' · 범위 제한' : '') + ')', 8, 14 + 16 * (state.fontScale - 1));
 
   // 색 띠 (입사 파면 단면, 장애물 직전) — 어느 y가 어느 색인지 표시
   const barX = L.xObstacle - 10;
@@ -564,14 +564,37 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
       blocked ? 1.2 : 2);
   }
 
-  drawCenteredRuler(ctx, toPy, focusY, R);
+  // 라벨/눈금 겹침 방지 — 라벨(Y 관측점, 표시 범위)이 차지할 픽셀 구간을 먼저
+  // 계산해서 drawCenteredRuler에 넘긴다. 그 구간에서는 눈금 "숫자"만 생략되고
+  // 눈금선은 그대로 남으므로, 라벨과 눈금 잉크가 겹칠 여지가 애초에 없어진다.
+  // 여백(tickInkPad)은 눈금 숫자 자신의 베이스라인 오프셋(+3)과 어센트/디센트까지
+  // 넉넉히 흡수하도록 폰트 한 배(1em) 크기로 잡는다 — 라벨 쪽 지표만으로는
+  // 상대편(눈금)의 실제 잉크 범위를 알 수 없기 때문에 보수적으로 잡는 것.
+  const skipPyRanges = [];
+  ctx.font = fontPx(16);
+  const tickInkPad = 16 * state.fontScale;
+  const label = 'Y (관측점)';
+  const m = markerLabelPy !== null ? ctx.measureText(label) : null;
+  if (m) {
+    skipPyRanges.push([
+      markerLabelPy - 10 - m.actualBoundingBoxAscent - tickInkPad,
+      markerLabelPy - 10 + m.actualBoundingBoxDescent + tickInkPad,
+    ]);
+  }
+  const rangeLabel = `표시 범위: ${formatLength(focusY)} ± ${formatLength(R)}`;
+  const rm = ctx.measureText(rangeLabel);
+  skipPyRanges.push([
+    L.h - 8 - rm.actualBoundingBoxAscent - tickInkPad,
+    L.h - 8 + rm.actualBoundingBoxDescent + tickInkPad,
+  ]);
+
+  drawCenteredRuler(ctx, toPy, focusY, R, skipPyRanges);
 
   // 관측점 라벨 — 눈금(ruler)을 그린 "뒤"에 그려서, 폰트가 커져 눈금 숫자와
-  // 자리가 겹치더라도 라벨이 항상 눈금 위에 온전히 보이도록 한다(뒷배경을 깔아 가림).
-  if (markerLabelPy !== null) {
+  // 자리가 겹치더라도 라벨이 항상 눈금 위에 온전히 보이도록 한다
+  // (위 skipPyRanges로 그 자리의 눈금 숫자 자체를 생략 + 뒷배경도 깔아 이중 안전장치).
+  if (m) {
     ctx.font = fontPx(16);
-    const label = 'Y (관측점)';
-    const m = ctx.measureText(label);
     ctx.fillStyle = THEME.canvasBg;
     ctx.fillRect(4, markerLabelPy - 10 - m.actualBoundingBoxAscent - 2, m.width + 6, m.actualBoundingBoxAscent + m.actualBoundingBoxDescent + 4);
     ctx.fillStyle = THEME.marker;
@@ -580,25 +603,25 @@ function drawPhasorArrows(canvas, logicalW, logicalH) {
 
   ctx.fillStyle = THEME.textDim;
   ctx.font = fontPx(16);
-  const rangeLabel = `표시 범위: ${formatLength(focusY)} ± ${formatLength(R)}`;
-  const rm = ctx.measureText(rangeLabel);
   ctx.fillStyle = THEME.canvasBg;
   ctx.fillRect(4, L.h - 8 - rm.actualBoundingBoxAscent - 2, rm.width + 6, rm.actualBoundingBoxAscent + rm.actualBoundingBoxDescent + 4);
   ctx.fillStyle = THEME.textDim;
   ctx.fillText(rangeLabel, 6, L.h - 8);
 }
 
-function drawCenteredRuler(ctx, toPy, center, halfRange) {
+function drawCenteredRuler(ctx, toPy, center, halfRange, skipPyRanges) {
   const step = niceRulerStep(halfRange);
   ctx.strokeStyle = THEME.axis;
   ctx.fillStyle = THEME.textDim;
   ctx.font = fontPx(16);
+  const inSkipRange = (py) => (skipPyRanges || []).some(([lo, hi]) => py >= lo && py <= hi);
   const drawTick = (yy) => {
     const py = toPy(yy);
     ctx.beginPath();
     ctx.moveTo(4, py);
     ctx.lineTo(10, py);
     ctx.stroke();
+    if (inSkipRange(py)) return; // 라벨과 겹치는 자리의 눈금 숫자만 생략(눈금선은 유지)
     ctx.fillText(formatLength(yy), 18, py + 3);
   };
   drawTick(center);

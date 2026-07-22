@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>회절 시뮬레이션 — 파장 vs 장애물 크기</title>
+<link rel="stylesheet" href="paper.css">
+</head>
+<body>
+<header class="app-header">
+  <h1>회절 시뮬레이션: 파장과 장애물 크기의 비교</h1>
+  <p class="subtitle">
+    평행한 전자기파가 장애물을 지나 스크린에 도달합니다. 스크린 위 점을 드래그하면 그 지점에서의
+    위상자(phasor) 벡터합이 코르누(Cornu) 나선 형태로 그려집니다.
+  </p>
+</header>
+
+<div class="app">
+  <aside class="controls">
+    <section class="control-group">
+      <h2>전자기파 스펙트럼 프리셋</h2>
+      <div class="preset-buttons">
+        <button data-preset="radio">라디오파</button>
+        <button data-preset="micro">마이크로파</button>
+        <button data-preset="visible">가시광선</button>
+        <button data-preset="bigobstacle">큰 장애물(직진)</button>
+      </div>
+    </section>
+
+    <section class="control-group">
+      <h2>파라미터</h2>
+
+      <label class="slider-label">
+        파장 &lambda; <span class="readout" id="lambda-readout"></span>
+      </label>
+      <input type="range" id="lambda-slider" min="0" max="1000" step="1">
+
+      <label class="slider-label">
+        장애물 폭 a <span class="readout" id="a-readout"></span>
+      </label>
+      <input type="range" id="a-slider" min="0" max="1000" step="1">
+
+      <label class="slider-label">
+        장애물&ndash;스크린 거리 z <span class="readout" id="z-readout"></span>
+      </label>
+      <input type="range" id="z-slider" min="0" max="1000" step="1">
+
+      <label class="slider-label">
+        위상자 촘촘함 N (코르누 나선) <span class="readout" id="n-readout"></span>
+      </label>
+      <input type="range" id="n-slider" min="20" max="2000" step="1">
+
+      <label class="slider-label">
+        표시할 위상자 화살표 개수 M <span class="readout" id="m-readout"></span>
+      </label>
+      <input type="range" id="m-slider" min="10" max="30" step="1">
+
+      <label class="slider-label">
+        ②번 표시 범위 R <span class="readout" id="range-readout"></span>
+      </label>
+      <input type="range" id="range-slider" min="0" max="1000" step="1">
+      <p class="hint" style="margin-top:4px;">②번 패널에서 마우스로 고른 위치(focusY)를 중심으로 보여주는, &lambda;와 무관한 표시 범위입니다.</p>
+
+      <label class="checkbox-label">
+        <input type="checkbox" id="obstacle-toggle" checked>
+        장애물 켜기 (끄면 평면파 그대로 통과)
+      </label>
+
+      <label class="checkbox-label" style="margin-top:14px;">
+        <input type="checkbox" id="scale-lock-toggle">
+        화면 스케일 고정 (&lambda;/a/z 변경 시 Y축 범위 유지)
+      </label>
+      <div id="scale-lock-section" style="display:none">
+        <label class="slider-label" style="margin-top:10px;">
+          고정 반높이 H <span class="readout" id="locked-height-readout"></span>
+        </label>
+        <input type="range" id="locked-height-slider" min="0" max="1000" step="1">
+        <p class="hint" style="margin-top:4px;">체크한 순간의 반높이로 고정됩니다. 슬라이더로 직접 조절도 가능합니다.</p>
+      </div>
+    </section>
+
+    <section class="control-group">
+      <h2>위상자 다이어그램</h2>
+      <button id="animate-btn">위상자 누적 애니메이션 재생</button>
+    </section>
+
+    <section class="control-group" id="scale-info">
+      <h2>스케일 정보</h2>
+      <table id="scale-table"></table>
+    </section>
+
+    <section class="control-group legend">
+      <h2>색 의미</h2>
+      <div class="color-bar"></div>
+      <div class="color-bar-labels"><span>장애물 아래쪽 입사점</span><span>장애물 위쪽 입사점</span></div>
+      <p class="hint">
+        입사 파면 위의 같은 위치는 메인 뷰의 색 띠, 위상자 다이어그램의 곡선 색과 항상 같은 색으로 표시됩니다.
+      </p>
+    </section>
+  </aside>
+
+  <main class="panels">
+    <section class="panel" id="panel-main">
+      <h3>① 전체 구조: 평면파 &rarr; 장애물 &rarr; 스크린 밝기 곡선</h3>
+      <canvas id="mainCanvas"></canvas>
+      <p class="panel-note">스크린의 점(●)은 오른쪽 스크린 선 근처에서 드래그하면 관측점 Y가 바뀝니다.</p>
+      <p class="panel-note hint-note">💡 왼쪽 입사파면·색 띠·장애물 위에 마우스를 올려보세요 — ②번 패널이 그 위치를 확대해서 보여줍니다(노란 테두리 구간).</p>
+    </section>
+
+    <div class="panel-row">
+      <section class="panel" id="panel-arrows">
+        <h3>② 관측점에 도달한 위상자의 방향</h3>
+        <canvas id="arrowsCanvas"></canvas>
+        <p class="panel-note" id="arrows-note"></p>
+      </section>
+
+      <section class="panel" id="panel-phasor">
+        <h3>③ 위상자 벡터합 (코르누 나선)</h3>
+        <canvas id="phasorCanvas"></canvas>
+        <p class="panel-note">회색 곡선은 장애물이 없을 때의 전체 나선, 색 곡선은 실제 합산 경로, 검은 화살표는 최종 벡터합입니다.</p>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script src="paper.js"></script>
+</body>
+</html>

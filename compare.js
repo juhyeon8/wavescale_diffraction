@@ -347,17 +347,23 @@
     ctx.fillText("I / I₀(입사)", 0, 0); ctx.restore();
     ctx.textAlign = "left"; ctx.fillText((-halfRange).toFixed(0), m.left, h - 16);
     ctx.textAlign = "right"; ctx.fillText(halfRange.toFixed(0), m.left + plotW, h - 16);
-    ctx.textAlign = "left"; ctx.fillText(Imax.toFixed(0), 4, m.top + 10);
+    ctx.fillStyle = "#5a5a62"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText((-H_mm / 2).toFixed(0), shadeX0, h - 16);
+    ctx.fillText((H_mm / 2).toFixed(0), shadeX1, h - 16);
+    ctx.textAlign = "left";
+    for (let v = 0; v <= Imax; v++) {
+      ctx.fillText(v.toFixed(0), 22, py(v) + 3);
+    }
 
     // 범례
     ctx.font = "11px sans-serif"; ctx.textAlign = "left";
     ctx.strokeStyle = "#2f6feb"; ctx.setLineDash([]); ctx.lineWidth = 1.8;
     ctx.beginPath(); ctx.moveTo(m.left + 10, m.top + 14); ctx.lineTo(m.left + 30, m.top + 14); ctx.stroke();
-    ctx.fillStyle = "#333"; ctx.fillText("MoM(금속 막대)", m.left + 34, m.top + 18);
+    ctx.fillStyle = "#333"; ctx.fillText("도선 막대", m.left + 34, m.top + 18);
     ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5, 4]);
     ctx.beginPath(); ctx.moveTo(m.left + 10, m.top + 30); ctx.lineTo(m.left + 30, m.top + 30); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillText("Huygens(프레넬)", m.left + 34, m.top + 34);
+    ctx.fillText("하위헌스-프레넬", m.left + 34, m.top + 34);
   }
 
   function updateInfoBox(mom, huy, H_mm, L_mm, lam_cm) {
@@ -368,8 +374,8 @@
       : "";
     el.infoBox.innerHTML =
       `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span style="font-size:11px;color:#6b6b72">(하위헌스 앱의 a²/(λz)는 이 값의 4배)</span><br>` +
-      `I₀ — MoM <b>${mom.I0.toFixed(3)}</b> · Huygens <b>${huy.I0.toFixed(3)}</b> (입사=1.000)<br>` +
-      `S̄ — MoM <b>${mom.sbar.toFixed(3)}</b> · Huygens <b>${huy.sbar.toFixed(3)}</b><br>` +
+      `I₀ — 도선 막대 <b>${mom.I0.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.I0.toFixed(3)}</b> (입사=1.000)<br>` +
+      `S̄ — 도선 막대 <b>${mom.sbar.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.sbar.toFixed(3)}</b><br>` +
       `S̄ 상대 차이 <b>${diffPct.toFixed(1)}%</b>` + warnBadge;
   }
 
@@ -436,7 +442,7 @@
     ctx.textAlign = "left"; ctx.fillText("1", m.left, h - 16);
     ctx.textAlign = "right"; ctx.fillText("30", m.left + plotW, h - 16);
     ctx.save(); ctx.translate(14, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = "center"; ctx.fillText("S̄ (파랑=MoM, 빨강=Huygens)", 0, 0); ctx.restore();
+    ctx.textAlign = "center"; ctx.fillText("S̄ (파랑=도선 막대, 빨강=하위헌스-프레넬)", 0, 0); ctx.restore();
   }
 
   async function runSweep() {

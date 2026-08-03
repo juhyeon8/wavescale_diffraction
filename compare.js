@@ -250,7 +250,7 @@
     return { ys_mm, Iy, I0, sbar, disc };
   }
 
-  // 하위헌스 스크린 곡선 계산 — a(장애물 폭)에 H(전체 폭)를 그대로 전달(§25.2:
+  // 하위헌스-프레넬 스크린 곡선 계산 — a(장애물 폭)에 H(전체 폭)를 그대로 전달(§25.2:
   // 두 모형의 H/a는 기하학적으로 같은 양, computeSolidWireLayout이 확인)
   function computeShadowFillRatioHuygens(lam_m, a_m, z_m, H_m, samples = 100) {
     const arr = new Array(samples);
@@ -331,7 +331,7 @@
     }
     ctx.stroke();
 
-    // 하위헌스 곡선(빨강 점선)
+    // 하위헌스-프레넬 곡선(빨강 점선)
     ctx.strokeStyle = "#c0392b"; ctx.lineWidth = 1.8; ctx.setLineDash([5, 4]); ctx.beginPath();
     for (let i = 0; i < huy.ys_mm.length; i++) {
       const x = px(huy.ys_mm[i]), y = py(huy.Iy[i]);
@@ -373,7 +373,7 @@
       ? ` <span class="badge warn">⚠ N=${mom.disc.N} 상한, d=λ/${(lam_cm * 10 / mom.disc.d_mm).toFixed(1)} (목표 λ/20 미달)</span>`
       : "";
     el.infoBox.innerHTML =
-      `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span style="font-size:11px;color:#6b6b72">(하위헌스 앱의 a²/(λz)는 이 값의 4배)</span><br>` +
+      `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span style="font-size:11px;color:#6b6b72">(하위헌스-프레넬 앱의 a²/(λz)는 이 값의 4배)</span><br>` +
       `I₀ — 도선 막대 <b>${mom.I0.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.I0.toFixed(3)}</b> (입사=1.000)<br>` +
       `S̄ — 도선 막대 <b>${mom.sbar.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.sbar.toFixed(3)}</b><br>` +
       `S̄ 상대 차이 <b>${diffPct.toFixed(1)}%</b>` + warnBadge;

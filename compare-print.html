@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>회절 비교 (인쇄용)</title>
+<style>
+:root {
+  --bg: #f7f7f8; --panel-bg: #ffffff; --border: #d8d8dc;
+  --text: #1c1c1f; --muted: #6b6b72; --accent: #2f6feb;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: var(--bg); color: var(--text);
+}
+#app { display: flex; height: 100vh; }
+#plotWrap { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px; gap: 12px; }
+#mainCanvas { width: 100%; height: 60%; background: #fff; border: 1px solid var(--border); border-radius: 6px; }
+#sweepPanel { display: none; height: 38%; }
+#sweepPanel.show { display: flex; flex-direction: column; gap: 6px; }
+#sweepCanvas { width: 100%; flex: 1; background: #fff; border: 1px solid var(--border); border-radius: 6px; }
+#sweepProgress { font-size: 12px; color: var(--muted); }
+#panel {
+  width: 340px; flex-shrink: 0; background: var(--panel-bg);
+  border-left: 1px solid var(--border); overflow-y: auto;
+  padding: 16px; font-size: 13px;
+}
+h1 { font-size: 15px; margin: 0 0 6px; }
+.sub { font-size: 11px; color: var(--muted); margin-bottom: 8px; line-height: 1.5; }
+h2 { font-size: 12px; margin: 14px 0 8px; color: var(--muted);
+  border-bottom: 1px solid var(--border); padding-bottom: 4px; letter-spacing: .02em; }
+label { display: block; font-size: 12px; margin-bottom: 4px; }
+.row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.row input[type=range] { flex: 1; }
+.valbox { width: 96px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); }
+.segbtns { display: flex; gap: 6px; margin-bottom: 6px; }
+.segbtns button {
+  flex: 1; font-size: 12px; padding: 7px 6px; border: 1px solid var(--border);
+  border-radius: 6px; background: #f0f0f3; cursor: pointer;
+}
+.segbtns button:hover { background: #e4e4e8; }
+button.std {
+  font-size: 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: #f0f0f3; cursor: pointer; width: 100%;
+}
+button.std:hover { background: #e4e4e8; }
+.info { font-size: 12px; line-height: 1.8; background: #f0f4ff; border: 1px solid #d6e0fb;
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.info b { color: var(--accent); font-variant-numeric: tabular-nums; }
+.badge { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 10px;
+  background: #e8e8ec; color: #555; margin-top: 4px; }
+.badge.warn { background: #fdeaea; color: #c0392b; }
+.hint { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.6;
+  background: #fdf6e8; border: 1px solid #f0e0b0; border-radius: 8px; padding: 8px 10px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="plotWrap">
+    <canvas id="mainCanvas"></canvas>
+    <div id="sweepPanel">
+      <div id="sweepProgress"></div>
+      <canvas id="sweepCanvas"></canvas>
+    </div>
+  </div>
+  <div id="panel">
+    <h1>도선 막대 vs 하위헌스-프레넬 회절 비교</h1>
+    <div class="sub">도선 막대(EFIE-MoM, 엄밀해)와 하위헌스-프레넬(키르히호프 근사에 의한 프레넬 적분)의
+      스크린 세기 곡선 I(y)를 같은 조건에서 정량 비교합니다.</div>
+
+    <h2>기하 조건</h2>
+    <div class="row">
+      <label style="width:60px">장애물 높이 H</label>
+      <input type="range" id="hSlider" min="20" max="300" step="1" value="100">
+      <span class="valbox" id="hVal"></span>
+    </div>
+    <div class="row">
+      <label style="width:60px">스크린 거리 L</label>
+      <input type="range" id="lSlider" min="30" max="1000" step="1" value="300">
+      <span class="valbox" id="lVal"></span>
+    </div>
+    <div class="row">
+      <label style="width:60px">파장 λ</label>
+      <input type="range" id="lamSlider" min="1" max="30" step="0.1" value="1">
+      <span class="valbox" id="lamVal"></span>
+    </div>
+
+    <h2>프리셋 (H=100mm·L=300mm 고정, λ만 변경)</h2>
+    <div class="segbtns">
+      <button id="preset1Btn">그림자 뚜렷<br>(λ=2cm)</button>
+      <button id="preset2Btn">회절 전이<br>(λ=5cm)</button>
+      <button id="preset3Btn">감싸 돎<br>(λ=20cm)</button>
+    </div>
+
+    <h2>지표</h2>
+    <div class="info" id="infoBox"></div>
+    <div class="hint" id="paraxialHint">
+      L이 H/2 수준이거나 작으면(광각) 하위헌스-프레넬 쪽의 근축(프레넬) 근사가 무너져 두 곡선이 크게
+      갈라집니다 — 근사 유효 범위의 시연이지 버그가 아닙니다.
+    </div>
+
+    <h2>λ 스윕</h2>
+    <button class="std" id="sweepBtn">λ 스윕 (1~30cm, S̄ vs λ)</button>
+    <div class="hint">H와 L을 고정한 채 파장 λ만 1~30cm로 훑으며, 각 λ에서 그림자 채움 지표
+      S̄ = (1/H)∫I(y)dy (|y|≤H/2)를 계산해 S̄–λ 곡선을 그립니다.
+      도선 막대(엄밀해)와 하위헌스-프레넬(키르히호프 근사)을 함께 표시하므로,
+      파장이 길어질수록 회절이 강해지는 추세와 두 모델이 갈라지는 지점을
+      한눈에 볼 수 있습니다.</div>
+
+    <h2>내보내기 (인쇄용 PNG)</h2>
+    <select id="resSelect" class="std">
+      <option value="1200x700">저해상도 (1200×700)</option>
+      <option value="1920x1120">중해상도 (1920×1120)</option>
+      <option value="2400x1400" selected>고해상도 (2400×1400) — 권장</option>
+      <option value="3600x2100">초고해상도 (3600×2100)</option>
+    </select>
+    <button class="std" id="exportPngBtn" style="margin-top:6px">PNG 저장</button>
+    <div class="hint" id="exportStatus">해상도를 선택하고 저장하면 현재 조건(H·L·λ)의 메인 그래프가 흰 배경 PNG로 다운로드됩니다.</div>
+  </div>
+</div>
+<script src="compare-print.js"></script>
+</body>
+</html>

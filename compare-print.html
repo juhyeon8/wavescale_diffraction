@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>도선 막대 vs 하위헌스-프레넬 회절 비교</title>
+<title>회절 비교 (인쇄용)</title>
 <style>
 :root {
   --bg: #f7f7f8; --panel-bg: #ffffff; --border: #d8d8dc;
@@ -107,8 +107,18 @@ button.std:hover { background: #e4e4e8; }
       도선 막대(엄밀해)와 하위헌스-프레넬(키르히호프 근사)을 함께 표시하므로,
       파장이 길어질수록 회절이 강해지는 추세와 두 모델이 갈라지는 지점을
       한눈에 볼 수 있습니다.</div>
+
+    <h2>내보내기 (인쇄용 PNG)</h2>
+    <select id="resSelect" class="std">
+      <option value="1200x700">저해상도 (1200×700)</option>
+      <option value="1920x1120">중해상도 (1920×1120)</option>
+      <option value="2400x1400" selected>고해상도 (2400×1400) — 권장</option>
+      <option value="3600x2100">초고해상도 (3600×2100)</option>
+    </select>
+    <button class="std" id="exportPngBtn" style="margin-top:6px">PNG 저장</button>
+    <div class="hint" id="exportStatus">해상도를 선택하고 저장하면 현재 조건(H·L·λ)의 메인 그래프가 흰 배경 PNG로 다운로드됩니다.</div>
   </div>
 </div>
-<script src="compare.js"></script>
+<script src="compare-print.js"></script>
 </body>
 </html>

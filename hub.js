@@ -22,6 +22,7 @@
     preset1Btn: document.getElementById('preset1Btn'),
     preset2Btn: document.getElementById('preset2Btn'),
     preset3Btn: document.getElementById('preset3Btn'),
+    preset4Btn: document.getElementById('preset4Btn'),
     pairPane: document.getElementById('pairPane'),
     comparePane: document.getElementById('comparePane'),
     metalWrap: document.getElementById('metalWrap'),
@@ -121,10 +122,19 @@
   }
   el.applyBtn.addEventListener("click", reloadAll);
 
-  const PRESETS = { preset1Btn: 2, preset2Btn: 5, preset3Btn: 20 };
+  // { lam_cm, L_mm } — 기존 3개는 L=300 고정으로 동작이 전과 동일하다.
+  // preset4는 preset2와 λ를 맞추고 L만 1000으로 바꾼 대조쌍이다(N_F 0.17 -> 0.05).
+  // λ=2cm가 아니라 5cm인 이유: L=1000·λ=2cm는 파장당 3.87셀이라 필드 렌더가
+  // 에일리어싱 구간에 들어가지만, λ=5cm는 9.68셀로 안전하다(물리 지표는 무관).
+  const PRESETS = {
+    preset1Btn: { lam_cm: 2, L_mm: 300 },
+    preset2Btn: { lam_cm: 5, L_mm: 300 },
+    preset3Btn: { lam_cm: 20, L_mm: 300 },
+    preset4Btn: { lam_cm: 5, L_mm: 1000 },
+  };
   Object.keys(PRESETS).forEach((id) => {
     el[id].addEventListener("click", () => {
-      state.H_mm = 100; state.L_mm = 300; state.lam_cm = PRESETS[id];
+      state.H_mm = 100; state.L_mm = PRESETS[id].L_mm; state.lam_cm = PRESETS[id].lam_cm;
       syncMasterSliders();
       if (paramSyncTimer) clearTimeout(paramSyncTimer);
       sendSetParams(Object.keys(frames));

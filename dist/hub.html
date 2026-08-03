@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>회절 시뮬레이션 허브 — 도선 막대 vs 하위헌스</title>
+<title>회절 시뮬레이션 허브 — 도선 막대 vs 하위헌스-프레넬</title>
 <style>
 :root {
   --bg: #f7f7f8; --panel-bg: #ffffff; --border: #d8d8dc;
@@ -19,8 +19,10 @@ html, body {
 /* 탭 바 */
 #tabBar { display: flex; border-bottom: 1px solid var(--border); background: var(--panel-bg); flex-shrink: 0; }
 .tabBtn {
-  flex: 1; font-size: 13px; padding: 12px 8px; border: none; border-right: 1px solid var(--border);
+  flex: 1; font-size: 13px; padding: 10px 8px; border: none; border-right: 1px solid var(--border);
   background: var(--panel-bg); color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 44px; line-height: 1.3; word-break: keep-all;
 }
 .tabBtn:last-child { border-right: none; }
 .tabBtn:hover { background: #f0f0f3; }
@@ -62,10 +64,10 @@ html, body {
 <body>
 <div id="app">
   <div id="tabBar">
-    <button class="tabBtn active" data-tab="huygens">① 하위헌스</button>
-    <button class="tabBtn" data-tab="metal">② 도선 막대</button>
-    <button class="tabBtn" data-tab="side">③ 나란히 보기</button>
-    <button class="tabBtn" data-tab="compare">④ 정량 비교</button>
+    <button class="tabBtn active" data-tab="huygens">①&nbsp;하위헌스-프레넬</button>
+    <button class="tabBtn" data-tab="metal">②&nbsp;도선 막대</button>
+    <button class="tabBtn" data-tab="side">③&nbsp;나란히 보기</button>
+    <button class="tabBtn" data-tab="compare">④&nbsp;정량 비교</button>
   </div>
 
   <div id="masterBar">
@@ -80,7 +82,7 @@ html, body {
         <button class="presetBtn" id="preset2Btn">회절 전이 (λ=5cm)</button>
         <button class="presetBtn" id="preset3Btn">감싸 돎 (λ=20cm)</button>
       </div>
-      <div class="mHint">슬라이더·프리셋은 리로드 없이 즉시 반영됩니다. ↺는 전체 초기화(리로드)입니다. 하위헌스 화면의 a&sup2;/(&lambda;z)는 도선 막대 앱 N_F의 4배입니다.</div>
+      <div class="mHint">슬라이더·프리셋은 리로드 없이 즉시 반영됩니다. ↺는 전체 초기화(리로드)입니다. 하위헌스-프레넬 화면의 a&sup2;/(&lambda;z)는 도선 막대 앱 N_F의 4배입니다.</div>
     </div>
   </div>
 

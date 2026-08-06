@@ -6,6 +6,8 @@
   // =====================================================================
   const TWO_PI = Math.PI * 2;
   const NUM_POINTS = 241;   // 메인 플롯 표본 수(§27.2)
+  const SWEEP_POINTS = 24;  // λ 스윕 표본 수(§34.1). 이 한 줄만 10으로 되돌리면 이전 동작 복귀.
+  const CROSSING_LAM_MIN = 2.0;  // 교차 탐색 하한 cm(§34.3) — 이 아래 부호 변화는 이산화 기인 가능
 
   // =====================================================================
   // 1. 상태
@@ -406,7 +408,93 @@
     return arr;
   }
 
-  function drawSweepChart(lambdas, sMoM, sHuy) {
+  // ---------------------------------------------------------------------
+  // 9.1 두 모형 S̄ 곡선의 교차점 검출(§34) — 물리 코어는 "호출만" 하는 순수 함수들.
+  //     recomputeMoM/recomputeHuygens 및 그 하위 수치 경로는 일절 수정하지 않는다.
+  // ---------------------------------------------------------------------
+
+  // 같은 (H, L, λ)의 중복 계산을 막는 캐시. 이분법이 스윕 격자점을 다시 밟을 때 특히 효과.
+  const sbarCache = new Map();
+  function sbarPairAt(H_mm, L_mm, lam_cm) {
+    const key = `${H_mm}|${L_mm}|${lam_cm.toFixed(4)}`;
+    const hit = sbarCache.get(key);
+    if (hit) return hit;
+    const v = {
+      mom: recomputeMoM(H_mm, L_mm, lam_cm).sbar,
+      huy: recomputeHuygens(H_mm, L_mm, lam_cm).sbar,
+    };
+    sbarCache.set(key, v);
+    return v;
+  }
+
+  // diff = S̄_MoM - S̄_Huy의 부호가 바뀌는 "모든" 구간을 반환(하나만 반환하지 않는다).
+  function findSignChanges(lambdas, sMoM, sHuy) {
+    const out = [];
+    for (let i = 0; i + 1 < lambdas.length; i++) {
+      const dLo = sMoM[i] - sHuy[i];
+      const dHi = sMoM[i + 1] - sHuy[i + 1];
+      if (dLo === 0 || (dLo < 0) !== (dHi < 0)) {
+        out.push({ iLo: i, iHi: i + 1, lamLo: lambdas[i], lamHi: lambdas[i + 1] });
+      }
+    }
+    return out;
+  }
+
+  // 이분법. 매 반복에서 두 모형을 재평가해 diff의 부호를 다시 본다.
+  // 최대 25회 또는 구간폭 < tol_cm에서 종료. sbar는 수렴점에서의 두 모형 평균.
+  function refineCrossing(H_mm, L_mm, lamLo, lamHi, tol_cm = 1e-3) {
+    let lo = lamLo, hi = lamHi;
+    const vLo = sbarPairAt(H_mm, L_mm, lo);
+    let dLo = vLo.mom - vLo.huy;
+    for (let it = 0; it < 25 && (hi - lo) >= tol_cm; it++) {
+      const mid = 0.5 * (lo + hi);
+      const vMid = sbarPairAt(H_mm, L_mm, mid);
+      const dMid = vMid.mom - vMid.huy;
+      if ((dLo < 0) === (dMid < 0)) { lo = mid; dLo = dMid; } else { hi = mid; }
+    }
+    const lam_cm = 0.5 * (lo + hi);
+    const v = sbarPairAt(H_mm, L_mm, lam_cm);
+    return { lam_cm, sbar: (v.mom + v.huy) / 2 };
+  }
+
+  // 부호 변화 구간 중 하단 λ가 CROSSING_LAM_MIN 미만인 것은 근 목록에서 제외하고 경고만 남긴다.
+  // (§34.3 근거: computeDiscretization의 d_target=min(1, λ/20)과 N≤400 상한 때문에
+  //  λ<2cm에서 N이 계단식으로 변해 diff(λ)가 불연속이 된다.)
+  function findCrossings(H_mm, L_mm, lambdas, sMoM, sHuy) {
+    const roots = [];
+    for (const c of findSignChanges(lambdas, sMoM, sHuy)) {
+      if (c.lamLo < CROSSING_LAM_MIN) {
+        console.warn(
+          `[교차점] λ=${c.lamLo.toFixed(2)}~${c.lamHi.toFixed(2)}cm 구간의 부호 변화는 ` +
+          `이산화 기인 가능(λ<${CROSSING_LAM_MIN}cm에서 N이 계단식으로 변함) — 근 목록에서 제외`);
+        continue;
+      }
+      roots.push(refineCrossing(H_mm, L_mm, c.lamLo, c.lamHi));
+    }
+    return roots;
+  }
+
+  function formatCrossings(crossings, H_mm, L_mm) {
+    if (!crossings.length) return "구간 내 교차 없음";
+    return "교차점: " + crossings.map((c) =>
+      `λ* = ${c.lam_cm.toFixed(2)} cm, S̄* = ${c.sbar.toFixed(3)} ` +
+      `(H/λ* = ${(H_mm / (c.lam_cm * 10)).toFixed(2)}, ` +
+      `N_F = ${fresnelNumber(H_mm, L_mm, c.lam_cm).toFixed(3)})`
+    ).join(" · ");
+  }
+
+  function buildSweepCsv(lambdas, sMoM, sHuy) {
+    const lines = ["λ_cm,S_MoM,S_Huy,diff"];
+    for (let i = 0; i < lambdas.length; i++) {
+      lines.push([
+        lambdas[i].toFixed(4), sMoM[i].toFixed(6), sHuy[i].toFixed(6),
+        (sMoM[i] - sHuy[i]).toFixed(6),
+      ].join(","));
+    }
+    return lines.join("\n");
+  }
+
+  function drawSweepChart(lambdas, sMoM, sHuy, crossings) {
     const canvas = el.sweepCanvas;
     const { w, h } = resizeCanvas(canvas);
     const ctx = canvas.getContext("2d");
@@ -423,6 +511,16 @@
     ctx.strokeStyle = "#c8c8ce"; ctx.lineWidth = 1;
     ctx.strokeRect(m.left + 0.5, m.top + 0.5, plotW - 1, plotH - 1);
 
+    // y축 눈금 — 0부터 Smax까지 0.1 간격 눈금선 + 좌측 숫자 라벨(§34.4)
+    ctx.font = "10px sans-serif";
+    for (let s = 0; s <= Smax + 1e-9; s += 0.1) {
+      const y = py(s);
+      ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(m.left, y); ctx.lineTo(m.left + plotW, y); ctx.stroke();
+      ctx.fillStyle = "#5a5a62"; ctx.textAlign = "right";
+      ctx.fillText(s.toFixed(1), m.left - 6, y + 3);
+    }
+
     function drawCurve(color, dash, values) {
       ctx.strokeStyle = color; ctx.lineWidth = 1.8;
       if (dash) ctx.setLineDash(dash);
@@ -437,28 +535,83 @@
     drawCurve("#2f6feb", null, sMoM);
     drawCurve("#c0392b", [5, 4], sHuy);
 
+    // 교차점 마커 — 십자 보조선(점선, 회색) + 원 마커, 첫 근에는 수치 라벨(§34.4)
+    (crossings || []).forEach((c, idx) => {
+      const cx = px(c.lam_cm), cy = py(c.sbar);
+      ctx.strokeStyle = "#999"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(cx, m.top); ctx.lineTo(cx, m.top + plotH);
+      ctx.moveTo(m.left, cy); ctx.lineTo(m.left + plotW, cy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, TWO_PI);
+      ctx.fillStyle = "#111"; ctx.fill();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
+
+      if (idx === 0) {
+        const label = `λ* = ${c.lam_cm.toFixed(2)} cm, S̄* = ${c.sbar.toFixed(3)}`;
+        ctx.font = "11px sans-serif"; ctx.fillStyle = "#111";
+        const flip = cx + 10 + ctx.measureText(label).width > m.left + plotW;
+        ctx.textAlign = flip ? "right" : "left";
+        ctx.fillText(label, cx + (flip ? -10 : 10), cy - 8);
+      }
+    });
+
     ctx.fillStyle = "#5a5a62"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
     ctx.fillText("파장 λ (cm, 로그축)", m.left + plotW / 2, h - 4);
-    ctx.textAlign = "left"; ctx.fillText("1", m.left, h - 16);
-    ctx.textAlign = "right"; ctx.fillText("30", m.left + plotW, h - 16);
+    // x축 눈금 라벨 — 로그축이므로 1,2,5,10,20,30에 배치(§34.4)
+    [1, 2, 5, 10, 20, 30].forEach((lam) => {
+      const x = px(lam);
+      ctx.textAlign = lam === 1 ? "left" : (lam === 30 ? "right" : "center");
+      ctx.fillText(String(lam), x, h - 16);
+    });
     ctx.save(); ctx.translate(14, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
     ctx.textAlign = "center"; ctx.fillText("S̄ (파랑=도선 막대, 빨강=하위헌스-프레넬)", 0, 0); ctx.restore();
   }
 
+  let lastSweepCsv = "";
+
   async function runSweep() {
-    const lambdas = logSpace(1, 30, 10);
+    const lambdas = logSpace(1, 30, SWEEP_POINTS);
     const sMoM = [], sHuy = [];
     el.sweepPanel.classList.add("show");
+    el.sweepResult.textContent = "";
     for (let i = 0; i < lambdas.length; i++) {
       el.sweepProgress.textContent = `진행 중... (${i + 1}/${lambdas.length}, λ=${lambdas[i].toFixed(2)}cm)`;
       await new Promise((resolve) => requestAnimationFrame(resolve));
-      const mom = recomputeMoM(state.H_mm, state.L_mm, lambdas[i]);
-      const huy = recomputeHuygens(state.H_mm, state.L_mm, lambdas[i]);
-      sMoM.push(mom.sbar); sHuy.push(huy.sbar);
+      const v = sbarPairAt(state.H_mm, state.L_mm, lambdas[i]);
+      sMoM.push(v.mom); sHuy.push(v.huy);
     }
-    el.sweepProgress.textContent = `완료 (H=${state.H_mm}mm, L=${state.L_mm}mm 기준, λ=1~30cm 10점)`;
-    drawSweepChart(lambdas, sMoM, sHuy);
+    el.sweepProgress.textContent = "교차점 탐색 중...";
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const crossings = findCrossings(state.H_mm, state.L_mm, lambdas, sMoM, sHuy);
+
+    el.sweepProgress.textContent =
+      `완료 (H=${state.H_mm}mm, L=${state.L_mm}mm 기준, λ=1~30cm ${SWEEP_POINTS}점)`;
+    el.sweepResult.textContent = formatCrossings(crossings, state.H_mm, state.L_mm);
+    drawSweepChart(lambdas, sMoM, sHuy, crossings);
+
+    lastSweepCsv = buildSweepCsv(lambdas, sMoM, sHuy);
+    console.log(`[스윕 CSV] H=${state.H_mm}mm, L=${state.L_mm}mm\n${lastSweepCsv}`);
     recomputeBoth();   // 스윕 중 state.H/L/λ는 안 바뀌지만, 메인 플롯 λ 슬라이더 값 기준으로 재동기화
+  }
+
+  // 클립보드 복사 — file://에서 navigator.clipboard가 막히는 경우가 있어 textarea 폴백을 둔다.
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+    }
+    return Promise.resolve(legacyCopy(text));
+  }
+  function legacyCopy(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* 조용히 무시 */ }
+    document.body.removeChild(ta);
   }
 
   // =====================================================================
@@ -500,6 +653,41 @@
         "recomputeHuygens(H=200,L=300,λ=1cm): S̄≈0.057(§26.2 수렴표 해석식 기준)");
       console.log("[검증] recomputeHuygens 기본 케이스 S̄=", r.sbar.toFixed(4), "I0=", r.I0.toFixed(4));
     }
+    // §34 교차점 검출 A~D. 네 케이스 모두 24점 스윕 + 이분법이라 합쳐서 수 초가 걸린다.
+    // 첫 렌더를 막지 않도록 뒤로 미룬다(assert는 매 로드마다 그대로 실행됨).
+    setTimeout(function () {
+      function crossingsOf(H, L) {
+        const lambdas = logSpace(1, 30, SWEEP_POINTS);
+        const sM = [], sH = [];
+        for (let i = 0; i < lambdas.length; i++) {
+          const v = sbarPairAt(H, L, lambdas[i]);
+          sM.push(v.mom); sH.push(v.huy);
+        }
+        return findCrossings(H, L, lambdas, sM, sH);
+      }
+      [
+        { id: "A", H: 125, L: 1000, lam: 4.19, sbar: 0.370 },
+        { id: "B", H: 100, L: 300,  lam: 4.17, sbar: 0.188 },
+        { id: "C", H: 200, L: 1000, lam: 5.85, sbar: 0.222 },
+      ].forEach(function (c) {
+        const r = crossingsOf(c.H, c.L);
+        console.assert(r.length >= 1, `[§34-${c.id}] H=${c.H},L=${c.L}: 교차점이 검출되어야 함`);
+        if (!r.length) return;
+        console.assert(Math.abs(r[0].lam_cm - c.lam) <= 0.05,
+          `[§34-${c.id}] H=${c.H},L=${c.L}: λ*=${r[0].lam_cm.toFixed(3)}cm (기대 ${c.lam}±0.05)`);
+        console.assert(Math.abs(r[0].sbar - c.sbar) <= 0.005,
+          `[§34-${c.id}] H=${c.H},L=${c.L}: S̄*=${r[0].sbar.toFixed(4)} (기대 ${c.sbar}±0.005)`);
+        console.log(`[검증] §34-${c.id} H=${c.H},L=${c.L} → λ*=${r[0].lam_cm.toFixed(4)}cm, ` +
+          `S̄*=${r[0].sbar.toFixed(4)} (근 ${r.length}개)`);
+      });
+      {
+        const r = crossingsOf(125, 300);
+        console.assert(r.length >= 2,
+          `[§34-D] H=125,L=300: 탐색 구간에서 교차점 2개 이상이어야 함 (실제 ${r.length}개)`);
+        console.log("[검증] §34-D H=125,L=300 → 근 " +
+          r.map((x) => `λ*=${x.lam_cm.toFixed(4)}cm(S̄*=${x.sbar.toFixed(4)})`).join(", "));
+      }
+    }, 0);
   }
 
   // =====================================================================
@@ -511,6 +699,8 @@
     sweepCanvas: document.getElementById("sweepCanvas"),
     sweepBtn: document.getElementById("sweepBtn"),
     sweepProgress: document.getElementById("sweepProgress"),
+    sweepResult: document.getElementById("sweepResult"),
+    csvCopyBtn: document.getElementById("csvCopyBtn"),
     hSlider: document.getElementById("hSlider"), hVal: document.getElementById("hVal"),
     lSlider: document.getElementById("lSlider"), lVal: document.getElementById("lVal"),
     lamSlider: document.getElementById("lamSlider"), lamVal: document.getElementById("lamVal"),
@@ -570,6 +760,14 @@
   });
 
   el.sweepBtn.addEventListener("click", () => { runSweep(); });
+
+  el.csvCopyBtn.addEventListener("click", () => {
+    if (!lastSweepCsv) return;
+    copyToClipboard(lastSweepCsv);
+    const old = el.csvCopyBtn.textContent;
+    el.csvCopyBtn.textContent = "복사됨";
+    setTimeout(() => { el.csvCopyBtn.textContent = old; }, 1200);
+  });
 
   window.addEventListener("resize", () => { drawMainPlot === undefined || recomputeBoth(); });
 

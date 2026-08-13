@@ -146,7 +146,7 @@
   function computeDiscretization(H_mm, lam_cm) {
     const lam_mm = lam_cm * 10;
     // §26.1 정정: d_target=λ/20 단독으로는 λ가 클 때(예 λ=3cm) 잔여 이산화
-    // 누설이 S̄를 과대평가함(수렴 기준값은 d=1mm/λ30에서 실측). 1mm 상한을
+    // 누설이 Īₛ를 과대평가함(수렴 기준값은 d=1mm/λ30에서 실측). 1mm 상한을
     // 추가로 걸어 λ가 커져도 격자가 과도하게 성겨지지 않게 함.
     const d_target_mm = Math.min(1, lam_mm / 20);
     const N = Math.min(400, Math.max(2, Math.ceil(H_mm / d_target_mm) + 1));
@@ -193,7 +193,7 @@
     return tr * tr + ti * ti;
   }
 
-  // 그림자 채움률 S̄(§19 로직 재사용) — 순수 함수
+  // 그림자 채움률 Īₛ(§19 로직 재사용) — 순수 함수
   function shadowFillRatioFromSamples(samples) {
     let sum = 0;
     for (let i = 0; i < samples.length; i++) sum += samples[i];
@@ -403,8 +403,8 @@
     el.infoBox.innerHTML =
       `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span style="font-size:11px;color:#6b6b72">(하위헌스-프레넬 앱의 a²/(λz)는 이 값의 4배)</span><br>` +
       `I₀ — 도선 막대 <b>${mom.I0.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.I0.toFixed(3)}</b> (입사=1.000)<br>` +
-      `S̄ — 도선 막대 <b>${mom.sbar.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.sbar.toFixed(3)}</b><br>` +
-      `S̄ 상대 차이 <b>${diffPct.toFixed(1)}%</b>` + warnBadge;
+      `Īₛ — 도선 막대 <b>${mom.sbar.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.sbar.toFixed(3)}</b><br>` +
+      `Īₛ 상대 차이 <b>${diffPct.toFixed(1)}%</b>` + warnBadge;
   }
 
   // =====================================================================
@@ -428,7 +428,7 @@
   }
 
   // =====================================================================
-  // 9. λ 스윕 — 진행률 표시 + S̄ vs λ 로그축 차트(§27.4)
+  // 9. λ 스윕 — 진행률 표시 + Īₛ vs λ 로그축 차트(§27.4)
   // =====================================================================
   function logSpace(minV, maxV, n) {
     const arr = new Array(n);
@@ -438,7 +438,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // 9.1 두 모형 S̄ 곡선의 교차점 검출(§34) — 물리 코어는 "호출만" 하는 순수 함수들.
+  // 9.1 두 모형 Īₛ 곡선의 교차점 검출(§34) — 물리 코어는 "호출만" 하는 순수 함수들.
   //     recomputeMoM/recomputeHuygens 및 그 하위 수치 경로는 일절 수정하지 않는다.
   // ---------------------------------------------------------------------
 
@@ -456,7 +456,7 @@
     return v;
   }
 
-  // diff = S̄_MoM - S̄_Huy의 부호가 바뀌는 "모든" 구간을 반환(하나만 반환하지 않는다).
+  // diff = Īₛ_MoM - Īₛ_Huy의 부호가 바뀌는 "모든" 구간을 반환(하나만 반환하지 않는다).
   function findSignChanges(lambdas, sMoM, sHuy) {
     const out = [];
     for (let i = 0; i + 1 < lambdas.length; i++) {
@@ -506,14 +506,14 @@
   function formatCrossings(crossings, H_mm, L_mm) {
     if (!crossings.length) return "구간 내 교차 없음";
     return "교차점: " + crossings.map((c) =>
-      `λ* = ${c.lam_cm.toFixed(2)} cm, S̄* = ${c.sbar.toFixed(3)} ` +
+      `λ* = ${c.lam_cm.toFixed(2)} cm, Īₛ* = ${c.sbar.toFixed(3)} ` +
       `(H/λ* = ${(H_mm / (c.lam_cm * 10)).toFixed(2)}, ` +
       `N_F = ${fresnelNumber(H_mm, L_mm, c.lam_cm).toFixed(3)})`
     ).join(" · ");
   }
 
   function buildSweepCsv(lambdas, sMoM, sHuy) {
-    const lines = ["λ_cm,S_MoM,S_Huy,diff"];
+    const lines = ["λ_cm,Is_MoM,Is_Huy,diff"];
     for (let i = 0; i < lambdas.length; i++) {
       lines.push([
         lambdas[i].toFixed(4), sMoM[i].toFixed(6), sHuy[i].toFixed(6),
@@ -603,7 +603,7 @@
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 * scale; ctx.stroke();
 
       if (idx === 0) {
-        const label = `λ* = ${c.lam_cm.toFixed(2)} cm, S̄* = ${c.sbar.toFixed(3)}`;
+        const label = `λ* = ${c.lam_cm.toFixed(2)} cm, Īₛ* = ${c.sbar.toFixed(3)}`;
         ctx.font = `${SW_CROSS_LABEL_PX * ts}px sans-serif`; ctx.fillStyle = "#111";
         const flip = cx + 10 * ts + ctx.measureText(label).width > m.left + plotW;
         ctx.textAlign = flip ? "right" : "left";
@@ -622,7 +622,7 @@
     });
     ctx.save(); ctx.translate(24 * ts, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
     ctx.font = `${SW_AXIS_TITLE_PX * ts}px sans-serif`;
-    ctx.textAlign = "center"; ctx.fillText("S̄ (그림자 채움 지표)", 0, 0); ctx.restore();
+    ctx.textAlign = "center"; ctx.fillText("Īₛ (그림자 영역의 평균 상대 세기)", 0, 0); ctx.restore();
 
     // 범례 — 선 종류로 두 모형을 구분(drawMainPlot과 동일 형식)
     ctx.font = `${SW_LEGEND_PX * ts}px sans-serif`; ctx.textAlign = "left";
@@ -718,14 +718,14 @@
     {
       const r = recomputeMoM(200, 300, 1);
       console.assert(r.sbar >= 0 && r.sbar <= 0.08 + 1e-6,
-        "recomputeMoM(H=200,L=300,λ=1cm): S̄가 0.08 이하(§28.1 기준4, 이산화 누설 없음)");
-      console.log("[검증] recomputeMoM 기본 케이스 S̄=", r.sbar.toFixed(4), "I0=", r.I0.toFixed(4));
+        "recomputeMoM(H=200,L=300,λ=1cm): Īₛ가 0.08 이하(§28.1 기준4, 이산화 누설 없음)");
+      console.log("[검증] recomputeMoM 기본 케이스 Īₛ=", r.sbar.toFixed(4), "I0=", r.I0.toFixed(4));
     }
     {
       const r = recomputeHuygens(200, 300, 1);
       console.assert(Math.abs(r.sbar - 0.057) < 0.01,
-        "recomputeHuygens(H=200,L=300,λ=1cm): S̄≈0.057(§26.2 수렴표 해석식 기준)");
-      console.log("[검증] recomputeHuygens 기본 케이스 S̄=", r.sbar.toFixed(4), "I0=", r.I0.toFixed(4));
+        "recomputeHuygens(H=200,L=300,λ=1cm): Īₛ≈0.057(§26.2 수렴표 해석식 기준)");
+      console.log("[검증] recomputeHuygens 기본 케이스 Īₛ=", r.sbar.toFixed(4), "I0=", r.I0.toFixed(4));
     }
     // §34 교차점 검출 A~D. 네 케이스 모두 24점 스윕 + 이분법이라 합쳐서 수 초가 걸린다.
     // 첫 렌더를 막지 않도록 뒤로 미룬다(assert는 매 로드마다 그대로 실행됨).
@@ -750,16 +750,16 @@
         console.assert(Math.abs(r[0].lam_cm - c.lam) <= 0.05,
           `[§34-${c.id}] H=${c.H},L=${c.L}: λ*=${r[0].lam_cm.toFixed(3)}cm (기대 ${c.lam}±0.05)`);
         console.assert(Math.abs(r[0].sbar - c.sbar) <= 0.005,
-          `[§34-${c.id}] H=${c.H},L=${c.L}: S̄*=${r[0].sbar.toFixed(4)} (기대 ${c.sbar}±0.005)`);
+          `[§34-${c.id}] H=${c.H},L=${c.L}: Īₛ*=${r[0].sbar.toFixed(4)} (기대 ${c.sbar}±0.005)`);
         console.log(`[검증] §34-${c.id} H=${c.H},L=${c.L} → λ*=${r[0].lam_cm.toFixed(4)}cm, ` +
-          `S̄*=${r[0].sbar.toFixed(4)} (근 ${r.length}개)`);
+          `Īₛ*=${r[0].sbar.toFixed(4)} (근 ${r.length}개)`);
       });
       {
         const r = crossingsOf(125, 300);
         console.assert(r.length >= 2,
           `[§34-D] H=125,L=300: 탐색 구간에서 교차점 2개 이상이어야 함 (실제 ${r.length}개)`);
         console.log("[검증] §34-D H=125,L=300 → 근 " +
-          r.map((x) => `λ*=${x.lam_cm.toFixed(4)}cm(S̄*=${x.sbar.toFixed(4)})`).join(", "));
+          r.map((x) => `λ*=${x.lam_cm.toFixed(4)}cm(Īₛ*=${x.sbar.toFixed(4)})`).join(", "));
       }
     }, 0);
   }

@@ -14,6 +14,7 @@
   // =====================================================================
   const state = {
     H_mm: 100, L_mm: 300, lam_cm: 1,
+    fontScale: 1.0,   // 글자 크기 배율 — 글자와 축 여백에만 적용(곡선 굵기·마커는 불변)
   };
 
   // =====================================================================
@@ -319,11 +320,14 @@
       ({ w, h } = resizeCanvas(canvas));
       scale = 1;
     }
+    // 글자용 배율 — 글자를 키우면 축 라벨이 놓일 여백도 같이 넓혀야 잘리지 않는다.
+    // 곡선 굵기·점선·음영은 scale만 쓰므로 그래프 그림 자체는 변하지 않는다.
+    const ts = scale * state.fontScale;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, h);   // PNG 저장 시 배경이 비지 않게
 
-    const m = { left: 76 * scale, right: 24 * scale, top: 24 * scale, bottom: 58 * scale };
+    const m = { left: 76 * ts, right: 24 * scale, top: 24 * scale, bottom: 58 * ts };
     const plotW = w - m.left - m.right, plotH = h - m.top - m.bottom;
     const halfRange = 1.0 * H_mm;   // 2.0*(H/2) — sampleYs_mm과 동일 범위 유지
     let Imax = 2;
@@ -363,31 +367,31 @@
     ctx.setLineDash([]);
 
     // 축 라벨
-    ctx.fillStyle = "#5a5a62"; ctx.font = `${AXIS_TITLE_PX * scale}px sans-serif`; ctx.textAlign = "center";
-    ctx.fillText("스크린 위치 y (mm)", m.left + plotW / 2, h - 8 * scale);
-    ctx.save(); ctx.translate(24 * scale, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = "#5a5a62"; ctx.font = `${AXIS_TITLE_PX * ts}px sans-serif`; ctx.textAlign = "center";
+    ctx.fillText("스크린 위치 y (mm)", m.left + plotW / 2, h - 8 * ts);
+    ctx.save(); ctx.translate(24 * ts, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
     ctx.fillText("I / I₀(입사)", 0, 0); ctx.restore();
 
-    ctx.font = `${TICK_PX * scale}px sans-serif`;
-    ctx.textAlign = "left"; ctx.fillText((-halfRange).toFixed(0), m.left, h - 32 * scale);
-    ctx.textAlign = "right"; ctx.fillText(halfRange.toFixed(0), m.left + plotW, h - 32 * scale);
+    ctx.font = `${TICK_PX * ts}px sans-serif`;
+    ctx.textAlign = "left"; ctx.fillText((-halfRange).toFixed(0), m.left, h - 32 * ts);
+    ctx.textAlign = "right"; ctx.fillText(halfRange.toFixed(0), m.left + plotW, h - 32 * ts);
     ctx.textAlign = "center";
-    ctx.fillText((-H_mm / 2).toFixed(0), shadeX0, h - 32 * scale);
-    ctx.fillText((H_mm / 2).toFixed(0), shadeX1, h - 32 * scale);
+    ctx.fillText((-H_mm / 2).toFixed(0), shadeX0, h - 32 * ts);
+    ctx.fillText((H_mm / 2).toFixed(0), shadeX1, h - 32 * ts);
     ctx.textAlign = "right";
     for (let v = 0; v <= Imax; v++) {
-      ctx.fillText(v.toFixed(0), m.left - 8 * scale, py(v) + 4 * scale);
+      ctx.fillText(v.toFixed(0), m.left - 8 * ts, py(v) + 4 * ts);
     }
 
     // 범례
-    ctx.font = `${LEGEND_PX * scale}px sans-serif`; ctx.textAlign = "left";
+    ctx.font = `${LEGEND_PX * ts}px sans-serif`; ctx.textAlign = "left";
     ctx.strokeStyle = "#2f6feb"; ctx.setLineDash([]); ctx.lineWidth = 1.8 * scale;
-    ctx.beginPath(); ctx.moveTo(m.left + 10 * scale, m.top + 16 * scale); ctx.lineTo(m.left + 44 * scale, m.top + 16 * scale); ctx.stroke();
-    ctx.fillStyle = "#333"; ctx.fillText("도선 막대", m.left + 50 * scale, m.top + 22 * scale);
+    ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 16 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 16 * ts); ctx.stroke();
+    ctx.fillStyle = "#333"; ctx.fillText("도선 막대", m.left + 50 * ts, m.top + 22 * ts);
     ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5 * scale, 4 * scale]);
-    ctx.beginPath(); ctx.moveTo(m.left + 10 * scale, m.top + 42 * scale); ctx.lineTo(m.left + 44 * scale, m.top + 42 * scale); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 42 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 42 * ts); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillText("하위헌스-프레넬", m.left + 50 * scale, m.top + 48 * scale);
+    ctx.fillText("하위헌스-프레넬", m.left + 50 * ts, m.top + 48 * ts);
   }
 
   function updateInfoBox(mom, huy, H_mm, L_mm, lam_cm) {
@@ -406,11 +410,14 @@
   // =====================================================================
   // 8. 상태 흐름 — H/L/λ 슬라이더는 같은 디바운스 안에서 두 모형을 함께 갱신(§27.4)
   // =====================================================================
+  let lastPlot = null;   // 마지막 계산 결과 — 글자 크기만 바꿀 때 재계산 없이 다시 그리려고 보관
+
   function recomputeBoth() {
     const mom = recomputeMoM(state.H_mm, state.L_mm, state.lam_cm);
     const huy = recomputeHuygens(state.H_mm, state.L_mm, state.lam_cm);
     drawMainPlot(mom, huy, state.H_mm);
     updateInfoBox(mom, huy, state.H_mm, state.L_mm, state.lam_cm);
+    lastPlot = { mom, huy, H_mm: state.H_mm };
     return { mom, huy };
   }
 
@@ -516,13 +523,37 @@
     return lines.join("\n");
   }
 
-  function drawSweepChart(lambdas, sMoM, sHuy, crossings) {
-    const canvas = el.sweepCanvas;
-    const { w, h } = resizeCanvas(canvas);
+  // targetCanvas/exportW/exportH를 생략하면 화면용 el.sweepCanvas에 기존과 동일하게 그림.
+  // exportW/exportH를 주면 그 픽셀 크기의 오프스크린 캔버스에 같은 그림을 그리되,
+  // 폰트·여백·선굵기를 SW_EXPORT_BASE_W 대비 비율(scale)만큼 키운다(drawMainPlot과 동일 규칙).
+  // meta = { H_mm, L_mm } — 주면 우상단에 조건 캡션을 표시(생략 가능).
+  function drawSweepChart(lambdas, sMoM, sHuy, crossings, meta, targetCanvas, exportW, exportH) {
+    // ---- 인쇄용 표시 크기 상수(캡처해 보고 다시 조정) ----
+    const SW_TICK_PX = 18;          // 축 눈금 숫자
+    const SW_AXIS_TITLE_PX = 20;    // 축 제목
+    const SW_LEGEND_PX = 18;        // 범례
+    const SW_CROSS_LABEL_PX = 16;   // 교차점 수치 라벨
+    const SW_CAPTION_PX = 16;       // 우상단 H·L 캡션
+    const SW_EXPORT_BASE_W = 1200;  // 이 폭에서 scale=1 (drawMainPlot의 EXPORT_BASE_W와 동일)
+    const SW_SCREEN_SCALE = 0.65;   // 화면(38% 높이 패널)용 축소 배율
+
+    const canvas = targetCanvas || el.sweepCanvas;
+    let w, h, scale;
+    if (exportW && exportH) {
+      canvas.width = exportW;
+      canvas.height = exportH;
+      w = exportW; h = exportH;
+      scale = exportW / SW_EXPORT_BASE_W;
+    } else {
+      ({ w, h } = resizeCanvas(canvas));
+      scale = SW_SCREEN_SCALE;
+    }
+    const ts = scale * state.fontScale;   // 글자용 배율(drawMainPlot과 동일 규칙)
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, h);   // PNG 저장 시 배경이 비지 않게
 
-    const m = { left: 50, right: 16, top: 16, bottom: 30 };
+    const m = { left: 76 * ts, right: 24 * scale, top: 24 * scale, bottom: 58 * ts };
     const plotW = w - m.left - m.right, plotH = h - m.top - m.bottom;
     const logMin = Math.log10(1), logMax = Math.log10(30);
     let Smax = 0.05;
@@ -534,17 +565,17 @@
     ctx.strokeRect(m.left + 0.5, m.top + 0.5, plotW - 1, plotH - 1);
 
     // y축 눈금 — 0부터 Smax까지 0.1 간격 눈금선 + 좌측 숫자 라벨(§34.4)
-    ctx.font = "10px sans-serif";
+    ctx.font = `${SW_TICK_PX * ts}px sans-serif`;
     for (let s = 0; s <= Smax + 1e-9; s += 0.1) {
       const y = py(s);
       ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(m.left, y); ctx.lineTo(m.left + plotW, y); ctx.stroke();
       ctx.fillStyle = "#5a5a62"; ctx.textAlign = "right";
-      ctx.fillText(s.toFixed(1), m.left - 6, y + 3);
+      ctx.fillText(s.toFixed(1), m.left - 8 * ts, y + 6 * ts);
     }
 
     function drawCurve(color, dash, values) {
-      ctx.strokeStyle = color; ctx.lineWidth = 1.8;
+      ctx.strokeStyle = color; ctx.lineWidth = 1.8 * scale;
       if (dash) ctx.setLineDash(dash);
       ctx.beginPath();
       for (let i = 0; i < lambdas.length; i++) {
@@ -555,44 +586,63 @@
       ctx.setLineDash([]);
     }
     drawCurve("#2f6feb", null, sMoM);
-    drawCurve("#c0392b", [5, 4], sHuy);
+    drawCurve("#c0392b", [5 * scale, 4 * scale], sHuy);
 
     // 교차점 마커 — 십자 보조선(점선, 회색) + 원 마커, 첫 근에는 수치 라벨(§34.4)
     (crossings || []).forEach((c, idx) => {
       const cx = px(c.lam_cm), cy = py(c.sbar);
-      ctx.strokeStyle = "#999"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = "#999"; ctx.lineWidth = 1 * scale; ctx.setLineDash([3 * scale, 3 * scale]);
       ctx.beginPath();
       ctx.moveTo(cx, m.top); ctx.lineTo(cx, m.top + plotH);
       ctx.moveTo(m.left, cy); ctx.lineTo(m.left + plotW, cy);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, TWO_PI);
+      ctx.beginPath(); ctx.arc(cx, cy, 4 * scale, 0, TWO_PI);
       ctx.fillStyle = "#111"; ctx.fill();
-      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 * scale; ctx.stroke();
 
       if (idx === 0) {
         const label = `λ* = ${c.lam_cm.toFixed(2)} cm, S̄* = ${c.sbar.toFixed(3)}`;
-        ctx.font = "11px sans-serif"; ctx.fillStyle = "#111";
-        const flip = cx + 10 + ctx.measureText(label).width > m.left + plotW;
+        ctx.font = `${SW_CROSS_LABEL_PX * ts}px sans-serif`; ctx.fillStyle = "#111";
+        const flip = cx + 10 * ts + ctx.measureText(label).width > m.left + plotW;
         ctx.textAlign = flip ? "right" : "left";
-        ctx.fillText(label, cx + (flip ? -10 : 10), cy - 8);
+        ctx.fillText(label, cx + (flip ? -10 * ts : 10 * ts), cy - 10 * ts);
       }
     });
 
-    ctx.fillStyle = "#5a5a62"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText("파장 λ (cm, 로그축)", m.left + plotW / 2, h - 4);
+    ctx.fillStyle = "#5a5a62"; ctx.font = `${SW_AXIS_TITLE_PX * ts}px sans-serif`; ctx.textAlign = "center";
+    ctx.fillText("파장 λ (cm, 로그축)", m.left + plotW / 2, h - 8 * ts);
     // x축 눈금 라벨 — 로그축이므로 1,2,5,10,20,30에 배치(§34.4)
+    ctx.font = `${SW_TICK_PX * ts}px sans-serif`;
     [1, 2, 5, 10, 20, 30].forEach((lam) => {
       const x = px(lam);
       ctx.textAlign = lam === 1 ? "left" : (lam === 30 ? "right" : "center");
-      ctx.fillText(String(lam), x, h - 16);
+      ctx.fillText(String(lam), x, h - 32 * ts);
     });
-    ctx.save(); ctx.translate(14, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = "center"; ctx.fillText("S̄ (파랑=도선 막대, 빨강=하위헌스-프레넬)", 0, 0); ctx.restore();
+    ctx.save(); ctx.translate(24 * ts, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
+    ctx.font = `${SW_AXIS_TITLE_PX * ts}px sans-serif`;
+    ctx.textAlign = "center"; ctx.fillText("S̄ (그림자 채움 지표)", 0, 0); ctx.restore();
+
+    // 범례 — 선 종류로 두 모형을 구분(drawMainPlot과 동일 형식)
+    ctx.font = `${SW_LEGEND_PX * ts}px sans-serif`; ctx.textAlign = "left";
+    ctx.strokeStyle = "#2f6feb"; ctx.setLineDash([]); ctx.lineWidth = 1.8 * scale;
+    ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 16 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 16 * ts); ctx.stroke();
+    ctx.fillStyle = "#333"; ctx.fillText("도선 막대 (실선)", m.left + 50 * ts, m.top + 22 * ts);
+    ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5 * scale, 4 * scale]);
+    ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 42 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 42 * ts); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText("하위헌스-프레넬 (점선)", m.left + 50 * ts, m.top + 48 * ts);
+
+    // 조건 캡션(우상단) — 스윕을 실행한 시점의 H·L
+    if (meta) {
+      ctx.font = `${SW_CAPTION_PX * ts}px sans-serif`; ctx.fillStyle = "#6b6b72"; ctx.textAlign = "right";
+      ctx.fillText(`H = ${meta.H_mm} mm, L = ${meta.L_mm} mm`, m.left + plotW - 10 * ts, m.top + 22 * ts);
+    }
   }
 
   let lastSweepCsv = "";
+  let lastSweep = null;   // { lambdas, sMoM, sHuy, crossings, H_mm, L_mm } — PNG 저장용 스냅샷
 
   async function runSweep() {
     const lambdas = logSpace(1, 30, SWEEP_POINTS);
@@ -612,9 +662,11 @@
     el.sweepProgress.textContent =
       `완료 (H=${state.H_mm}mm, L=${state.L_mm}mm 기준, λ=1~30cm ${SWEEP_POINTS}점)`;
     el.sweepResult.textContent = formatCrossings(crossings, state.H_mm, state.L_mm);
-    drawSweepChart(lambdas, sMoM, sHuy, crossings);
+    drawSweepChart(lambdas, sMoM, sHuy, crossings, { H_mm: state.H_mm, L_mm: state.L_mm });
 
     lastSweepCsv = buildSweepCsv(lambdas, sMoM, sHuy);
+    lastSweep = { lambdas, sMoM, sHuy, crossings, H_mm: state.H_mm, L_mm: state.L_mm };
+    el.exportSweepPngBtn.disabled = false;
     console.log(`[스윕 CSV] H=${state.H_mm}mm, L=${state.L_mm}mm\n${lastSweepCsv}`);
     recomputeBoth();   // 스윕 중 state.H/L/λ는 안 바뀌지만, 메인 플롯 λ 슬라이더 값 기준으로 재동기화
   }
@@ -730,8 +782,10 @@
     preset2Btn: document.getElementById("preset2Btn"),
     preset3Btn: document.getElementById("preset3Btn"),
     infoBox: document.getElementById("infoBox"),
+    fontSlider: document.getElementById("fontSlider"), fontVal: document.getElementById("fontVal"),
     resSelect: document.getElementById("resSelect"),
     exportPngBtn: document.getElementById("exportPngBtn"),
+    exportSweepPngBtn: document.getElementById("exportSweepPngBtn"),
     exportStatus: document.getElementById("exportStatus"),
   };
 
@@ -794,6 +848,21 @@
     setTimeout(() => { el.csvCopyBtn.textContent = old; }, 1200);
   });
 
+  // 글자 크기 — 물리량이 바뀌는 게 아니므로 재계산 없이 두 차트를 다시 그리기만 한다.
+  function redrawForFontScale() {
+    if (lastPlot) drawMainPlot(lastPlot.mom, lastPlot.huy, lastPlot.H_mm);
+    if (lastSweep) {
+      drawSweepChart(lastSweep.lambdas, lastSweep.sMoM, lastSweep.sHuy, lastSweep.crossings,
+        { H_mm: lastSweep.H_mm, L_mm: lastSweep.L_mm });
+    }
+  }
+
+  el.fontSlider.addEventListener("input", function () {
+    state.fontScale = parseFloat(this.value);
+    el.fontVal.textContent = state.fontScale.toFixed(1) + "배";
+    redrawForFontScale();
+  });
+
   window.addEventListener("resize", () => { drawMainPlot === undefined || recomputeBoth(); });
 
   // =====================================================================
@@ -822,7 +891,30 @@
     }, "image/png");
   }
 
+  // 스윕 차트는 스윕 실행 시점의 H·L에 묶인 결과이므로 recomputeBoth()로 갱신하지 않고
+  // lastSweep 스냅샷을 그대로 다시 그린다.
+  function exportSweepPng() {
+    if (!lastSweep) return;
+    const [expW, expH] = el.resSelect.value.split("x").map(Number);
+    const offCanvas = document.createElement("canvas");
+    drawSweepChart(lastSweep.lambdas, lastSweep.sMoM, lastSweep.sHuy,
+      lastSweep.crossings, { H_mm: lastSweep.H_mm, L_mm: lastSweep.L_mm },
+      offCanvas, expW, expH);
+    offCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const filename = `sweep_H${lastSweep.H_mm.toFixed(0)}_L${lastSweep.L_mm.toFixed(0)}_lam1to30cm_${expW}x${expH}.png`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      const mb = blob.size / (1024 * 1024);
+      el.exportStatus.textContent = `저장됨 · ${filename} · 약 ${mb.toFixed(2)} MB`;
+    }, "image/png");
+  }
+
   el.exportPngBtn.addEventListener("click", exportMainPlotPng);
+  el.exportSweepPngBtn.addEventListener("click", exportSweepPng);
 
   // =====================================================================
   // 시작

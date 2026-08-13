@@ -50,6 +50,7 @@ button.std {
   background: #f0f0f3; cursor: pointer; width: 100%;
 }
 button.std:hover { background: #e4e4e8; }
+button.std:disabled { opacity: .45; cursor: default; }
 .info { font-size: 12px; line-height: 1.8; background: #f0f4ff; border: 1px solid #d6e0fb;
   border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
 .info b { color: var(--accent); font-variant-numeric: tabular-nums; }
@@ -118,14 +119,20 @@ button.std:hover { background: #e4e4e8; }
       한눈에 볼 수 있습니다.</div>
 
     <h2>내보내기 (인쇄용 PNG)</h2>
-    <select id="resSelect" class="std">
+    <div class="row">
+      <label style="width:60px">글자 크기</label>
+      <input type="range" id="fontSlider" min="1" max="2" step="0.1" value="1">
+      <span class="valbox" id="fontVal">1.0배</span>
+    </div>
+    <select id="resSelect" class="std" style="margin-top:6px">
       <option value="1200x700">저해상도 (1200×700)</option>
       <option value="1920x1120">중해상도 (1920×1120)</option>
       <option value="2400x1400" selected>고해상도 (2400×1400) — 권장</option>
       <option value="3600x2100">초고해상도 (3600×2100)</option>
     </select>
-    <button class="std" id="exportPngBtn" style="margin-top:6px">PNG 저장</button>
-    <div class="hint" id="exportStatus">해상도를 선택하고 저장하면 현재 조건(H·L·λ)의 메인 그래프가 흰 배경 PNG로 다운로드됩니다.</div>
+    <button class="std" id="exportPngBtn" style="margin-top:6px">메인 그래프 PNG 저장</button>
+    <button class="std" id="exportSweepPngBtn" style="margin-top:6px" disabled>λ 스윕 PNG 저장</button>
+    <div class="hint" id="exportStatus">글자 크기는 화면과 저장되는 PNG에 함께 적용됩니다(축 여백도 같이 넓어지고, 곡선 굵기는 그대로). 해상도를 선택하고 저장하면 흰 배경 PNG로 다운로드됩니다. λ 스윕 PNG는 스윕을 한 번 실행한 뒤에 활성화됩니다.</div>
   </div>
 </div>
 <script src="compare-print.js"></script>

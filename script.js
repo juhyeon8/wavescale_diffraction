@@ -1424,6 +1424,13 @@
         phaseDeg: state.phase * 180 / Math.PI, playing: state.playing,
       };
     },
+    // 격자 데이터가 캡처 전후로 바뀌지 않았는지 확인하기 위한 읽기 전용 체크섬
+    gridChecksum: function (n) {
+      const m = Math.max(1, Math.min(solver.gridW * solver.gridH, Number(n) || 10));
+      let inc = 0, sc = 0;
+      for (let i = 0; i < m; i++) { inc += solver.incRe[i]; sc += solver.scRe[i]; }
+      return { n: m, incRe: inc, scRe: sc, gridW: solver.gridW, gridH: solver.gridH };
+    },
     anisotropy: function (presetKey) { return captureAnisotropy(presetWidth(presetKey)); },
     dataURL: function (kind, presetKey) {
       return renderCaptureCanvas(kind, presetWidth(presetKey)).toDataURL('image/png');

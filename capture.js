@@ -19,6 +19,8 @@
     { key: 'sqtall', label: '여유크롭', w: 934, h: 900, targetBand: [800, 880] },
   ];
   const READY_TIMEOUT = 90000;   // 1:1 모드는 격자가 3배라 recompute가 30초를 넘기도 한다
+  const FONT_SCALE_KEY = 'capture.fontScale';
+  const FONT_SCALE_MIN = 0.8, FONT_SCALE_MAX = 3.0, FONT_SCALE_DEFAULT = 1.5;
 
   const ui = {
     viewPreset: 'sq',
@@ -26,6 +28,7 @@
     capPreset: 's',
     H_mm: 150, L_mm: 100, lam_cm: 12,
     phaseDeg: 0,
+    fontScale: FONT_SCALE_DEFAULT,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -55,6 +58,48 @@
     const el = $(id);
     el.value = String(value);
     el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  // ------------------------------------------------- 그래프 글자 배율(F1)
+  function clampFontScale(v) {
+    const n = Math.round(parseFloat(v) * 10) / 10;
+    if (!isFinite(n)) return FONT_SCALE_DEFAULT;
+    return Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, n));
+  }
+
+  function loadFontScale() {
+    try {
+      const raw = window.localStorage.getItem(FONT_SCALE_KEY);
+      return (raw === null) ? FONT_SCALE_DEFAULT : clampFontScale(raw);
+    } catch (e) { return FONT_SCALE_DEFAULT; }   // file://에서 저장소가 막혀도 동작해야 한다
+  }
+
+  function saveFontScale(v) {
+    try { window.localStorage.setItem(FONT_SCALE_KEY, String(v)); } catch (e) { /* 무시 */ }
+  }
+
+  function applyFontScale(v, persist) {
+    const a = api();
+    ui.fontScale = clampFontScale(v);
+    if (a) a.options.fontScale = ui.fontScale;
+    $("capFontScale").value = String(ui.fontScale);
+    $("capFontScaleVal").textContent = "×" + ui.fontScale.toFixed(1);
+    if (persist) saveFontScale(ui.fontScale);
+    refreshPlotPreview();
+  }
+
+  // 그래프 캡처는 화면에 없으므로 작은 미리보기를 그려 배율 변화를 바로 보여준다.
+  function refreshPlotPreview() {
+    const a = api();
+    if (!a) return;
+    try {
+      $("plotPreview").src = a.dataURL('plot', 'xs');
+      const m = a.meta;
+      $("plotPreviewInfo").textContent =
+        "눈금 " + m.tickPx + "px · 축 이름 " + m.axisPx + "px · 플롯 영역 "
+        + (m.plotAreaFrac * 100).toFixed(0) + "% (640px 기준 미리보기)"
+        + (m.boxWarn ? " — 배율이 큽니다" : "");
+    } catch (e) { /* 아직 계산 전이면 조용히 넘어간다 */ }
   }
 
   // ------------------------------------------------------------ 상태 표시
@@ -111,6 +156,7 @@
     try { await a.ready(READY_TIMEOUT); } catch (e) { showBanner(String(e.message || e)); }
     busy(false);
     refreshStatus();
+    refreshPlotPreview();
   }
 
   async function applyCamera(mode) {
@@ -145,6 +191,7 @@
       busy(false);
     }
     refreshStatus();
+    refreshPlotPreview();
   }
 
   function applyPhase() {
@@ -163,6 +210,7 @@
     a.options.halfHLines = $("capHalfH").checked;
     a.options.shadowBand = $("capShadowBand").checked;
     a.options.preset = ui.capPreset;
+    a.options.fontScale = ui.fontScale;
   }
 
   // ------------------------------------------------------------------ 저장
@@ -215,6 +263,7 @@
   document.querySelectorAll("#capPresetButtons button").forEach((b) =>
     b.addEventListener("click", () => {
       ui.capPreset = b.dataset.p; syncButtons(); applyOptions(); refreshStatus();
+      refreshPlotPreview();
     }));
 
   function bindParam(id, key, valId, unit, which) {
@@ -236,7 +285,9 @@
   });
 
   ["capScreenLine", "capCenterLine", "capFrame", "capHalfH", "capShadowBand"]
-    .forEach((id) => $(id).addEventListener("change", applyOptions));
+    .forEach((id) => $(id).addEventListener("change", () => { applyOptions(); refreshPlotPreview(); }));
+
+  $("capFontScale").addEventListener("input", function () { applyFontScale(this.value, true); });
 
   $("capIncBtn").addEventListener("click", () => captureOne('inc'));
   $("capScBtn").addEventListener("click", () => captureOne('sc'));
@@ -265,10 +316,12 @@
     $("capH").value = String(ui.H_mm); $("capHVal").textContent = ui.H_mm + " mm";
     $("capL").value = String(ui.L_mm); $("capLVal").textContent = ui.L_mm + " mm";
     $("capLam").value = String(ui.lam_cm); $("capLamVal").textContent = ui.lam_cm + " cm";
+    applyFontScale(loadFontScale(), false);   // 지난번 배율 복원(없으면 기본 1.5)
     booted = true;
     await applyCamera(ui.camera);       // 기본 1:1 관찰 모드
     applyOptions();
     refreshStatus();
+    refreshPlotPreview();
   }
 
   // 검증용 훅
@@ -282,6 +335,8 @@
     applyParam: applyParam,
     applyPhase: applyPhase,
     applyOptions: applyOptions,
+    applyFontScale: applyFontScale,
+    refreshPlotPreview: refreshPlotPreview,
     refreshStatus: refreshStatus,
     captureOne: captureOne,
     captureAll: captureAll,

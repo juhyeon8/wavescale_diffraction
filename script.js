@@ -1002,6 +1002,7 @@
     shadowBand: true,          // 그래프의 |y|≤H/2 회색 음영
     halfHLines: false,         // 필드 패널의 ±H/2 가로 점선(기본 끔)
     unit: 'cm',                // 'cm' | 'mm'
+    fontScale: 1.5,            // 그래프 캡처 글자 배율(0.8~3.0) — 선 두께에는 영향 없음
   };
 
   let captureMeta = null;
@@ -1186,6 +1187,10 @@
   }
 
   // §33.7 스크린 세기 그래프 캡처 — 화면 그래프와 달리 전치(가로축=위치 y, 세로축=세기 I).
+  //
+  // 글자 크기는 capture.fontScale 하나로 조절한다. 여백(플롯 박스)은 고정 비율이 아니라
+  // 실제 글자 폭·높이를 measureText로 재서 역산하므로, 배율을 키워도 숫자가 잘리지 않는다.
+  // 선 두께(곡선·축선·점선)는 fontScale의 영향을 받지 않는다 — 글자만 커진다.
   function renderPlotCapture(W) {
     const aspectHW = 0.62;                       // 그래프는 고정 종횡비(창 크기 무관)
     const size = capturePixelSize(W, aspectHW);
@@ -1193,7 +1198,24 @@
     const cv = document.createElement("canvas");
     cv.width = cw; cv.height = ch;
     const c = cv.getContext("2d");
-    const s = cw / 1000;
+    const s = cw / 1000;                         // 선 두께 기준 배율(글자와 분리)
+
+    // 기본 글자 크기는 여기 한 곳에서만 정한다.
+    const FONT = {
+      tick: 14,     // 축 눈금 숫자
+      axis: 16,     // 축 이름
+      minTick: 11,  // 하한(px)
+      minAxis: 12,
+    };
+    const fs = function (base, min) {
+      return Math.max(min, Math.round(base * (cw / 1000) * capture.fontScale));
+    };
+    const tickPx = fs(FONT.tick, FONT.minTick);
+    const axisPx = fs(FONT.axis, FONT.minAxis);
+    const pad = Math.round(6 * (cw / 1000) * capture.fontScale);
+    const gap = pad;
+    const tickLen = Math.round(5 * s);           // 눈금선 길이 — 선이므로 배율과 무관
+
     const L_m = state.L_mm / 1000;
     const H_m = barHeight_mm(state.N, state.d_mm) / 1000;
     const Yw = base.Yw;                          // 줌 무관 고정 기준(화면 그래프와 동일)
@@ -1201,10 +1223,63 @@
     const yMax = plotYMax(prof.Imax);
     const u = (capture.unit === 'cm') ? 100 : 1000;   // m → cm | mm
 
+    // 글자 높이 — actualBoundingBox 미지원 환경은 fontPx * 1.2 로 폴백한다.
+    function textH(text, fontPx) {
+      const m = c.measureText(text);
+      if (typeof m.actualBoundingBoxAscent === "number"
+        && typeof m.actualBoundingBoxDescent === "number") {
+        return m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+      }
+      return fontPx * 1.2;
+    }
+
+    // 눈금 값·문자열을 박스보다 먼저 만든다(여백을 글자 실측으로 역산해야 하므로).
+    const xStep = niceTickStep(2 * Yw * u, 6);
+    const xTicks = [];
+    for (let t = Math.ceil(-Yw * u / xStep) * xStep; t <= Yw * u + 1e-9; t += xStep)
+      xTicks.push({ v: t, s: formatTick(t, xStep) });
+    const yStep = niceTickStep(yMax, 4);
+    const yTicks = [];
+    for (let t = 0; t <= yMax + 1e-9; t += yStep)
+      yTicks.push({ v: t, s: formatTick(t, yStep) });
+
+    const xName = "스크린 위의 위치 y (" + capture.unit + ")";
+    const yName = "스크린 세기 I(y) / I₀";
+
+    c.font = tickPx + "px sans-serif";
+    let yLabelW = 0;
+    for (let i = 0; i < yTicks.length; i++)
+      yLabelW = Math.max(yLabelW, c.measureText(yTicks[i].s).width);
+    let xTickH = 0;
+    for (let i = 0; i < xTicks.length; i++)
+      xTickH = Math.max(xTickH, textH(xTicks[i].s, tickPx));
+    const yTopLabelH = yTicks.length ? textH(yTicks[yTicks.length - 1].s, tickPx) : tickPx;
+    const xLastLabelW = xTicks.length ? c.measureText(xTicks[xTicks.length - 1].s).width : 0;
+
+    c.font = axisPx + "px sans-serif";
+    const xNameH = textH(xName, axisPx);
+    const yNameH = textH(yName, axisPx);
+
     const box = {
-      l: Math.round(cw * 0.13), r: Math.round(cw * 0.97),
-      t: Math.round(ch * 0.07), b: Math.round(ch * 0.80),
+      l: Math.round(pad + yNameH + gap + yLabelW + tickLen),
+      r: Math.round(cw - pad - xLastLabelW / 2),
+      t: Math.round(pad + yTopLabelH / 2),
+      b: Math.round(ch - pad - xNameH - gap - xTickH - tickLen),
     };
+
+    // 배율이 너무 크면 플롯이 찌그러진다. 자동으로 낮추지 않고 경고만 남긴다
+    // (사용자가 스스로 배율을 되돌릴 수 있어야 하므로).
+    const areaFrac = ((box.r - box.l) * (box.b - box.t)) / (cw * ch);
+    let boxWarn = null;
+    if (box.l >= box.r || box.t >= box.b) {
+      boxWarn = "[캡처 경고] 폰트 배율 ×" + capture.fontScale
+        + " 에서 플롯 영역이 뒤집혔습니다 — 배율을 낮추세요";
+    } else if (areaFrac < 0.40) {
+      boxWarn = "[캡처 경고] 폰트 배율 ×" + capture.fontScale
+        + " 에서 플롯 영역이 캔버스의 " + (areaFrac * 100).toFixed(0) + "% 뿐입니다 — 배율을 낮추세요";
+    }
+    if (boxWarn) console.warn(boxWarn);
+
     const X = function (y_m) { return box.l + (y_m + Yw) / (2 * Yw) * (box.r - box.l); };
     const Y = function (I) { return box.b - Math.min(I, yMax) / yMax * (box.b - box.t); };
 
@@ -1230,26 +1305,23 @@
     c.moveTo(box.l, box.t); c.lineTo(box.l, box.b); c.lineTo(box.r, box.b);
     c.stroke();
 
-    // 5. 눈금 — 640px 프리셋에서도 읽히도록 폰트에 9px 하한을 둔다(D7).
-    const tickFont = Math.max(9, Math.round(12 * s));
-    c.font = tickFont + "px sans-serif";
+    // 5. 눈금
+    c.font = tickPx + "px sans-serif";
     c.fillStyle = "#333"; c.strokeStyle = "#333"; c.lineWidth = 1 * s;
-    const xStep = niceTickStep(2 * Yw * u, 6);
     c.textAlign = "center"; c.textBaseline = "top";
-    for (let t = Math.ceil(-Yw * u / xStep) * xStep; t <= Yw * u + 1e-9; t += xStep) {
-      const px = X(t / u);
-      c.beginPath(); c.moveTo(px, box.b); c.lineTo(px, box.b + 5 * s); c.stroke();
-      c.fillText(formatTick(t, xStep), px, box.b + 7 * s);
+    for (let i = 0; i < xTicks.length; i++) {
+      const px = X(xTicks[i].v / u);
+      c.beginPath(); c.moveTo(px, box.b); c.lineTo(px, box.b + tickLen); c.stroke();
+      c.fillText(xTicks[i].s, px, box.b + tickLen);
     }
-    const yStep = niceTickStep(yMax, 4);
     c.textAlign = "right"; c.textBaseline = "middle";
-    for (let t = 0; t <= yMax + 1e-9; t += yStep) {
-      const py = Y(t);
-      c.beginPath(); c.moveTo(box.l, py); c.lineTo(box.l - 5 * s, py); c.stroke();
-      c.fillText(formatTick(t, yStep), box.l - 7 * s, py);
+    for (let i = 0; i < yTicks.length; i++) {
+      const py = Y(yTicks[i].v);
+      c.beginPath(); c.moveTo(box.l, py); c.lineTo(box.l - tickLen, py); c.stroke();
+      c.fillText(yTicks[i].s, box.l - tickLen, py);
     }
 
-    // 6. I(y) 곡선
+    // 6. I(y) 곡선 — 두께는 fontScale과 무관
     c.save();
     c.strokeStyle = "#c0392b"; c.lineWidth = 2 * s;
     c.lineJoin = "round"; c.lineCap = "round";
@@ -1262,16 +1334,14 @@
     c.restore();
 
     // 7. 축 이름 (제목·범례·파라미터 캡션은 넣지 않는다)
-    const labFont = Math.max(10, Math.round(13 * s));
-    c.font = labFont + "px sans-serif"; c.fillStyle = "#333";
-    c.textAlign = "center"; c.textBaseline = "alphabetic";
-    c.fillText("스크린 위의 위치 y (" + capture.unit + ")",
-      (box.l + box.r) / 2, ch - Math.round(6 * s));
+    c.font = axisPx + "px sans-serif"; c.fillStyle = "#333";
+    c.textAlign = "center"; c.textBaseline = "bottom";
+    c.fillText(xName, (box.l + box.r) / 2, ch - pad);
     c.save();
-    c.translate(Math.round(labFont * 1.1), (box.t + box.b) / 2);
+    c.translate(pad + yNameH / 2, (box.t + box.b) / 2);
     c.rotate(-Math.PI / 2);
     c.textAlign = "center"; c.textBaseline = "middle";
-    c.fillText("스크린 세기 I(y) / I₀", 0, 0);
+    c.fillText(yName, 0, 0);
     c.restore();
 
     const points = [];
@@ -1282,6 +1352,8 @@
       viewMode: state.viewMode, zoom: view.zoomFactor,
       pxAtImax: Y(prof.Imax),
       shadowBandPx: [X(-H_m / 2), X(H_m / 2)],
+      fontScale: capture.fontScale, tickPx: tickPx, axisPx: axisPx,
+      plotAreaFrac: areaFrac, boxWarn: boxWarn,
     };
     return cv;
   }

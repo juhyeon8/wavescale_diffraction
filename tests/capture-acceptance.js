@@ -71,6 +71,42 @@ window.__t = {
     }
     return { red, dark, w: p.w, h: p.h };
   },
+  // 캔버스 가장자리 t픽셀 테두리 안의 잉크(글자 잘림 검출용)
+  async ringInk(url, t) {
+    const p = await window.__t.pixels(url);
+    let n = 0;
+    for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) {
+      if (y < t || y >= p.h - t || x < t || x >= p.w - t) {
+        const i = (y * p.w + x) * 4;
+        if (window.__t.isInk2(p.data[i], p.data[i+1], p.data[i+2])) n++;
+      }
+    }
+    return { ink: n, w: p.w, h: p.h };
+  },
+  // y0부터 아래로 훑어 '첫 잉크 줄 ~ 그 뒤 처음 나오는 빈 줄' 구간의 높이를 잰다.
+  // 눈금 숫자와 축 이름은 gap(빈 줄)으로 떨어져 있으므로 숫자 블록만 잡힌다.
+  async inkRunHeight(url, x0, y0, x1, yScanEnd) {
+    const p = await window.__t.pixels(url);
+    const ax = Math.max(0, Math.round(x0)), bx = Math.min(p.w, Math.round(x1));
+    const ay = Math.max(0, Math.round(y0)), by = Math.min(p.h, Math.round(yScanEnd));
+    const rowHasInk = (y) => {
+      for (let x = ax; x < bx; x++) {
+        const i = (y * p.w + x) * 4;
+        if (window.__t.isInk2(p.data[i], p.data[i+1], p.data[i+2])) return true;
+      }
+      return false;
+    };
+    let first = -1, last = -1;
+    for (let y = ay; y < by; y++) {
+      if (rowHasInk(y)) {
+        if (first < 0) first = y;
+        last = y;
+      } else if (first >= 0) {
+        break;
+      }
+    }
+    return (first < 0) ? 0 : (last - first + 1);
+  },
   // 회색 음영 띠(rgba(0,0,0,0.08) → 약 235,235,235)의 가로 픽셀 폭
   async bandWidth(url, yFrac) {
     const p = await window.__t.pixels(url);
@@ -120,6 +156,12 @@ async function waitIdle(page) {
   await page.waitForFunction(() => window.__captureTool && window.__captureTool.ready(), { timeout: READY });
   await waitIdle(page);
   console.log("\n=== 준비 완료: 구도 sq(컨테이너 934×820, 밴드 800×800) · 카메라 1:1 · 위상 0° · 일시정지 ===\n");
+
+  // 그래프 글자 배율을 고정한다 — A11은 회색 띠의 픽셀 폭을 비교하므로 두 캡처의
+  // 배율이 반드시 같아야 한다. localStorage에는 쓰지 않는다(persist=false).
+  const PIN_FONT_SCALE = 1.5;
+  await page.evaluate((v) => window.__captureTool.applyFontScale(v, false), PIN_FONT_SCALE);
+  console.log("폰트 배율 ×" + PIN_FONT_SCALE.toFixed(1) + " 로 고정" + "\n");
 
   const layoutSq = await api(page, "(a) => a.layout()");
   const paramsSq = await api(page, "(a) => a.params()");
@@ -237,12 +279,17 @@ async function waitIdle(page) {
 
   // ---------------- A13 저해상도 폰트 하한 — 코드 확인
   const src = fs.readFileSync(path.resolve(__dirname, "..", "script.js"), "utf8");
-  const tickLine = /const tickFont = Math\.max\(9, Math\.round\(12 \* s\)\);/.test(src);
-  const labLine = /const labFont = Math\.max\(10, Math\.round\(13 \* s\)\);/.test(src);
-  const xsFont = Math.max(9, Math.round(12 * (640 / 1000)));
-  rec("A13", "저해상도 폰트 하한(코드 확인)",
-    `tickFont=Math.max(9,…) ${tickLine ? "있음" : "없음"}, labFont=Math.max(10,…) ${labLine ? "있음" : "없음"}; `
-    + `640px에서 눈금 ${xsFont}px`, tickLine && labLine && xsFont >= 9, "픽셀 검사 대신 코드 확인");
+  const hasFontBlock = /minTick:\s*11/.test(src) && /minAxis:\s*12/.test(src)
+    && /tick:\s*14/.test(src) && /axis:\s*16/.test(src);
+  const hasScaleFn = /Math\.max\(min, Math\.round\(base \* \(cw \/ 1000\) \* capture\.fontScale\)\)/.test(src);
+  const oldGone = !/Math\.max\(9, Math\.round\(12 \* s\)\)/.test(src)
+    && !/Math\.max\(10, Math\.round\(13 \* s\)\)/.test(src);
+  const xsFont = Math.max(11, Math.round(14 * (640 / 1000) * PIN_FONT_SCALE));
+  rec("A13", "폰트 기본값·하한(코드 확인)",
+    `FONT{tick:14,axis:16,minTick:11,minAxis:12} ${hasFontBlock ? "있음" : "없음"}, `
+    + `fontScale 반영식 ${hasScaleFn ? "있음" : "없음"}, 구 하한(9/10) ${oldGone ? "제거됨" : "남음"}; `
+    + `640px·×${PIN_FONT_SCALE} 에서 눈금 ${xsFont}px`,
+    hasFontBlock && hasScaleFn && oldGone && xsFont >= 11, "픽셀 검사 대신 코드 확인");
 
   // ---------------- A14 용량 순서
   const sizes = {};
@@ -256,6 +303,59 @@ async function waitIdle(page) {
   rec("A19", "1:1+정사각 pxPerMm_x vs pxPerMm_y 차이",
     `${(anisoSq.aniso * 100).toFixed(4)} % (x=${anisoSq.pxPerMm_x.toFixed(4)}, y=${anisoSq.pxPerMm_y.toFixed(4)})`,
     anisoSq.aniso < 0.005);
+
+  // ---------------- A26 · A27 · A28 폰트 배율
+  console.log("--- 폰트 배율 검증 ---");
+  const SCALES = [1.0, 1.5, 2.5];
+  const fontRows = [];
+  for (const sc of SCALES) {
+    await page.evaluate((v) => window.__captureTool.applyFontScale(v, false), sc);
+    const url = await api(page, "(a) => a.dataURL('plot', 'xs')");
+    const m = await api(page, "(a) => a.meta");
+    const ring = await page.evaluate(([u]) => window.__t.ringInk(u, 2), [url]);
+    const tickLen = Math.round(5 * (m.W / 1000));
+    const h = await page.evaluate(([u, b]) => window.__t.inkRunHeight(u, b[0], b[1], b[2], b[3]),
+      [url, [m.box.l, m.box.b + tickLen, m.box.r, m.H]]);
+    fontRows.push({ scale: sc, tickPx: m.tickPx, axisPx: m.axisPx, ringInk: ring.ink,
+      inkH: h, areaFrac: m.plotAreaFrac, warn: !!m.boxWarn,
+      pointsLen: JSON.stringify(m.points).length, yMax: m.yMax,
+      points0: m.points[0][0], pointsN: m.points[m.points.length - 1][0] });
+  }
+  rec("A26", "배율 1.0/1.5/2.5 · 640px에서 가장자리 2px 테두리 잉크(글자 잘림)",
+    fontRows.map((r) => "×" + r.scale + ": " + r.ringInk + " px").join(", "),
+    fontRows.every((r) => r.ringInk === 0));
+  rec("A27", "눈금 숫자 크기 (설정 폰트 px / 이미지 실측 잉크 높이 px)",
+    fontRows.map((r) => "×" + r.scale + ": " + r.tickPx + "px / 실측 " + r.inkH + "px"
+      + " (플롯영역 " + (r.areaFrac * 100).toFixed(0) + "%" + (r.warn ? ", 경고" : "") + ")").join(" | "),
+    fontRows.find((r) => r.scale === 1.5).tickPx >= 11,
+    "판정은 설정 폰트 px 기준(하한 minTick=11). 실측은 숫자 글리프 자체의 높이(cap height)라 "
+    + "폰트 크기의 약 0.72배로 나온다");
+  const dataSame = fontRows.every((r) => r.pointsLen === fontRows[0].pointsLen
+    && r.yMax === fontRows[0].yMax && r.points0 === fontRows[0].points0
+    && r.pointsN === fontRows[0].pointsN);
+  rec("A28", "배율이 달라도 데이터 매핑 불변(points·yMax 동일)",
+    dataSame ? "세 배율 모두 동일 (yMax=" + fontRows[0].yMax + ", 첫 x="
+      + fontRows[0].points0.toFixed(2) + ", 끝 x=" + fontRows[0].pointsN.toFixed(2) + ")" : "달라짐",
+    dataSame);
+  await page.evaluate((v) => window.__captureTool.applyFontScale(v, false), PIN_FONT_SCALE);
+  const reURL = await api(page, "(a) => a.dataURL('plot','s')");
+  const reMeta = await api(page, "(a) => a.meta");
+  let reMono = true;
+  for (let i = 1; i < reMeta.points.length; i++)
+    if (!(reMeta.points[i][0] > reMeta.points[i - 1][0])) reMono = false;
+  const reTop = await page.evaluate(async (u) => {
+    const p = await window.__t.pixels(u);
+    for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) {
+      const i = (y * p.w + x) * 4;
+      if (p.data[i] > 140 && p.data[i + 1] < 90 && p.data[i + 2] < 90) return y;
+    }
+    return -1;
+  }, reURL);
+  rec("A28b", "고정 배율에서 A9·A12 재확인",
+    "A9: 첫 " + reMeta.points[0][0].toFixed(2) + " < 0 < 끝 "
+    + reMeta.points[reMeta.points.length - 1][0].toFixed(2) + ", 단조=" + reMono
+    + " | A12: 곡선 최고점 " + reTop + " px vs " + reMeta.pxAtImax.toFixed(1) + " px",
+    reMono && reMeta.points[0][0] < 0 && Math.abs(reTop - reMeta.pxAtImax) <= 3);
 
   // ---------------- A21 gridColsUsed (sq)
   const gridCols = {};
@@ -391,7 +491,8 @@ async function waitIdle(page) {
   // 단, 가로축 범위 base.Yw 자체가 H에 의존하므로 두 캡처의 y범위 차이를 보정한다.
   const ratioRaw = w60 / w150;
   const ratioScaled = (w60 * meta60.Yw_m) / (w150 * meta150.Yw_m);
-  rec("A11", "가로축=위치 실증 (음영 띠 폭 비율, H 60/150=0.40)",
+  rec("A11", "가로축=위치 실증 (음영 띠 폭 비율, H 60/150=0.40, 폰트 배율 ×"
+    + PIN_FONT_SCALE.toFixed(1) + " 고정)",
     `원시 ${ratioRaw.toFixed(3)} (${w60}/${w150} px), y범위 보정 ${ratioScaled.toFixed(3)}`
     + ` — Yw ${(meta150.Yw_m * 100).toFixed(2)}→${(meta60.Yw_m * 100).toFixed(2)} cm`,
     Math.abs(ratioScaled - 0.4) <= 0.03,

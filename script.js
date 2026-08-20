@@ -420,33 +420,12 @@
     if (offscreen.width !== gw || offscreen.height !== gh) {
       offscreen.width = gw; offscreen.height = gh;
     }
-    const gxSpan = solver.xMax - solver.xMin;
-
     // 필드값(0=입사/1=산란/2=중첩)을 오프스크린에 그린 뒤, cam 범위로 crop해서
     // destRect(밴드 픽셀 사각형)에 그린다 — 3분할·1:1 공용(§20.5).
+    // 실제 렌더는 §33.1 drawFieldCrop()에 있다 — 라이브·캡처 공용(순수 추출, 로직 동일).
     function renderField(fieldIndex, cam, destX, destY, destW, destH) {
-      const img = offctx.createImageData(gw, gh);
-      const data = img.data;
-      for (let p = 0; p < gw * gh; p++) {
-        let fr, fi;
-        if (fieldIndex === 0) { fr = solver.incRe[p]; fi = solver.incIm[p]; }
-        else if (fieldIndex === 1) { fr = solver.scRe[p]; fi = solver.scIm[p]; }
-        else { fr = solver.incRe[p] + solver.scRe[p]; fi = solver.incIm[p] + solver.scIm[p]; }
-        const val = (fr * cosP + fi * sinP) * A;
-        colorFor(val / VMAX, data, p * 4);
-      }
-      offctx.putImageData(img, 0, 0);
-      let sx = (cam.xMin - solver.xMin) / gxSpan * gw;
-      let sxEnd = (cam.xMax - solver.xMin) / gxSpan * gw;
-      let sy = (solver.Yw - cam.Yw) / (2 * solver.Yw) * gh;
-      let syEnd = (solver.Yw + cam.Yw) / (2 * solver.Yw) * gh;
-      sx = Math.max(0, Math.min(gw, sx));
-      sxEnd = Math.max(0, Math.min(gw, sxEnd));
-      sy = Math.max(0, Math.min(gh, sy));
-      syEnd = Math.max(0, Math.min(gh, syEnd));
-      const sW = Math.max(1, sxEnd - sx), sH = Math.max(1, syEnd - sy);
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(offscreen, sx, sy, sW, sH, destX, destY, destW, destH);
+      drawFieldCrop(ctx, offscreen, offctx, fieldIndex, cam,
+                    destX, destY, destW, destH, cosP, sinP, A);
     }
 
     let plotBy, plotBh;
@@ -956,6 +935,53 @@
       drawFrame();
     }
     requestAnimationFrame(loop);
+  }
+
+  // =====================================================================
+  // §33 캡처(이미지 내보내기) — 논문 그림용 PNG 렌더러
+  //
+  // 설계 원칙(지시서 D1~D11):
+  //  · 화면 렌더 경로(drawOverlay/drawOverlay1to1/drawIntensityPlot)는 손대지 않고
+  //    독립 렌더러를 따로 둔다. 캡처에는 제목·라벨·치수선·화살표가 하나도 없다.
+  //  · 캡처는 recompute()/scheduleRecompute()를 호출하지 않는다. 이미 계산된 solver
+  //    격자를 크롭·확대할 뿐이다(격자보다 큰 출력은 업스케일 — 정상 동작).
+  //  · 버튼·체크박스 같은 UI는 이 파일에 없다. 도구 페이지 capture.html이 담당하고
+  //    여기서는 window.__capture 훅만 노출한다(index.html/style.css 무변경).
+  // =====================================================================
+
+  // §33.1 필드 → 목적지 rect 렌더 (라이브/캡처 공용). 색 매핑·크롭 로직은 기존과 동일.
+  // 반환값은 실제로 쓰인 격자 크롭 사각형(캡처 메타의 gridColsUsed용) — 라이브 경로는 무시한다.
+  function drawFieldCrop(dstCtx, gridCanvas, gridCtx, fieldIndex, cam,
+                         destX, destY, destW, destH, cosP, sinP, A) {
+    const gw = solver.gridW, gh = solver.gridH;
+    if (!gw || !gh) return null;
+    if (gridCanvas.width !== gw || gridCanvas.height !== gh) {
+      gridCanvas.width = gw; gridCanvas.height = gh;
+    }
+    const img = gridCtx.createImageData(gw, gh);
+    const data = img.data;
+    for (let p = 0; p < gw * gh; p++) {
+      let fr, fi;
+      if (fieldIndex === 0) { fr = solver.incRe[p]; fi = solver.incIm[p]; }
+      else if (fieldIndex === 1) { fr = solver.scRe[p]; fi = solver.scIm[p]; }
+      else { fr = solver.incRe[p] + solver.scRe[p]; fi = solver.incIm[p] + solver.scIm[p]; }
+      const val = (fr * cosP + fi * sinP) * A;
+      colorFor(val / VMAX, data, p * 4);
+    }
+    gridCtx.putImageData(img, 0, 0);
+    const gxSpan = solver.xMax - solver.xMin;
+    let sx = (cam.xMin - solver.xMin) / gxSpan * gw;
+    let sxEnd = (cam.xMax - solver.xMin) / gxSpan * gw;
+    let sy = (solver.Yw - cam.Yw) / (2 * solver.Yw) * gh;
+    let syEnd = (solver.Yw + cam.Yw) / (2 * solver.Yw) * gh;
+    sx = Math.max(0, Math.min(gw, sx));
+    sxEnd = Math.max(0, Math.min(gw, sxEnd));
+    sy = Math.max(0, Math.min(gh, sy));
+    syEnd = Math.max(0, Math.min(gh, syEnd));
+    const sW = Math.max(1, sxEnd - sx), sH = Math.max(1, syEnd - sy);
+    dstCtx.imageSmoothingEnabled = true;
+    dstCtx.drawImage(gridCanvas, sx, sy, sW, sH, destX, destY, destW, destH);
+    return { sx: sx, sy: sy, sW: sW, sH: sH };
   }
 
   // =====================================================================

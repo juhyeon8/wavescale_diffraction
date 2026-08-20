@@ -11,6 +11,7 @@ const { chromium } = require("playwright");
 const { start } = require("./static-server.js");
 
 const OUT = path.resolve(__dirname, "..", "captures-sample");
+const VIEW_TARGET = { sq: [800, 800], wide: [1200, 450], sqtall: [800, 880] };
 const READY = 90000;                    // 1:1 모드 recompute는 30초를 넘기도 한다
 const results = [];
 let recomputeLogs = 0;
@@ -118,7 +119,7 @@ async function waitIdle(page) {
   await page.addScriptTag({ content: HELPERS });
   await page.waitForFunction(() => window.__captureTool && window.__captureTool.ready(), { timeout: READY });
   await waitIdle(page);
-  console.log("\n=== 준비 완료: 구도 sq(1275×820) · 카메라 1:1 · 위상 0° · 일시정지 ===\n");
+  console.log("\n=== 준비 완료: 구도 sq(컨테이너 934×820, 밴드 800×800) · 카메라 1:1 · 위상 0° · 일시정지 ===\n");
 
   const layoutSq = await api(page, "(a) => a.layout()");
   const paramsSq = await api(page, "(a) => a.params()");
@@ -175,18 +176,14 @@ async function waitIdle(page) {
     `${r.ink} px (보완 검출기 ${r.ink2} px)`, r.ink === 0 && r.ink2 === 0);
 
   // ---------------- A7 화면은 그대로(회귀)
-  const liveURL = await page.evaluate(() => {
-    const d = document.getElementById("sim").contentDocument;
-    return d.getElementById("canvas").toDataURL("image/png");
-  });
+  const liveURL = await page.evaluate(() => document.getElementById("canvas").toDataURL("image/png"));
   const liveBand = await page.evaluate(() => {
-    const w = document.getElementById("sim").contentWindow;
-    const L = w.__capture.layout();
-    const c = w.document.getElementById("canvas");
+    const L = window.__capture.layout();
+    const c = document.getElementById("canvas");
     // 좌표는 CSS 크기가 아니라 canvas.width/height 기준으로 잡는다(dpr 영향 차단)
     const sx = c.width / L.cssW, sy = c.height / L.cssH;
     return { bx: 12 * sx, by: 10 * sy, bw: L.bandW * sx, bh: L.bandH1to1 * sy,
-      cw: c.width, ch: c.height, dpr: w.devicePixelRatio };
+      cw: c.width, ch: c.height, dpr: window.devicePixelRatio };
   });
   const bandFrac = (fx0, fy0, fx1, fy1) => [
     (liveBand.bx + fx0 * liveBand.bw) / liveBand.cw, (liveBand.by + fy0 * liveBand.bh) / liveBand.ch,
@@ -301,9 +298,24 @@ async function waitIdle(page) {
   // ---------------- A22 · A21 (구도 프리셋 실측)
   console.log("\n--- 구도 프리셋 실측 ---");
   const bandMeas = [];
+  const WINDOW_SIZES = [{ width: 1500, height: 950 }, { width: 1100, height: 700 },
+    { width: 1800, height: 1100 }];
+  const winSweep = [];
   async function measurePreset(key) {
     await page.evaluate((k) => window.__captureTool.applyViewPreset(k), key);
     await waitIdle(page);
+    // A25 — 창 크기를 바꿔도 컨테이너가 고정이라 밴드 실측이 변하지 않아야 한다
+    const sweep = [];
+    for (const size of WINDOW_SIZES) {
+      await page.setViewportSize(size);
+      await page.waitForTimeout(350);            // resize 디바운스(150ms)보다 길게
+      const q = await api(page, "(a) => a.layout()");
+      sweep.push({ win: size.width + "×" + size.height,
+        band: q.bandW.toFixed(0) + "×" + q.bandH1to1.toFixed(0) });
+    }
+    await page.setViewportSize(WINDOW_SIZES[0]);
+    await page.waitForTimeout(350);
+    winSweep.push({ key, sweep });
     const L = await api(page, "(a) => a.layout()");
     const vp = (await page.evaluate(() => window.__captureTool.presets)).find((p) => p.key === key);
     for (const k of ["xs", "s", "m"]) {
@@ -330,6 +342,16 @@ async function waitIdle(page) {
   const okA22 = bandMeas.every((b) => Math.abs(b.dW) <= 2 && Math.abs(b.dH) <= 2);
   rec("A22", "구도 프리셋 밴드 실측 vs 목표 (±2 px)",
     bandMeas.map((b) => `${b.key}: ${b.measured} (목표 ${b.target}, Δ${b.dW}/${b.dH})`).join(" | "), okA22);
+  const uniqPer = winSweep.map((w) => ({ key: w.key, set: [...new Set(w.sweep.map((x) => x.band))] }));
+  const okA25 = uniqPer.every((u) => u.set.length === 1)
+    && winSweep.every((w) => {
+      const vp = VIEW_TARGET[w.key];
+      const [bw, bh] = w.sweep[0].band.split("×").map(Number);
+      return Math.abs(bw - vp[0]) <= 1 && Math.abs(bh - vp[1]) <= 1;
+    });
+  rec("A25", "창 크기 3종에서 밴드 실측 불변 (목표 ±1 px)",
+    winSweep.map((w) => w.key + ": " + w.sweep.map((x) => x.win + "→" + x.band).join(", ")).join(" | "),
+    okA25);
   rec("A21", "gridColsUsed (프리셋별)",
     Object.entries(gridCols).map(([k, v]) => `${k}=${v}`).join(", "), null,
     Object.values(gridCols).some((v) => v < 300) ? "300열 미만 있음" : "모두 300열 이상");
@@ -357,9 +379,9 @@ async function waitIdle(page) {
   await page.evaluate(() => {
     const t = window.__captureTool;
     t.ui.H_mm = 60;
-    document.getElementById("hSlider").value = "60";
-    document.getElementById("hVal").textContent = "60 mm";
-    return t.applyParams();
+    document.getElementById("capH").value = "60";
+    document.getElementById("capHVal").textContent = "60 mm";
+    return t.applyParam('H');
   });
   await waitIdle(page);
   const w60 = await page.evaluate((u) => window.__t.bandWidth(u, 0.5),
@@ -379,9 +401,9 @@ async function waitIdle(page) {
   await page.evaluate(() => {
     const t = window.__captureTool;
     t.ui.H_mm = 150;
-    document.getElementById("hSlider").value = "150";
-    document.getElementById("hVal").textContent = "150 mm";
-    return t.applyParams();
+    document.getElementById("capH").value = "150";
+    document.getElementById("capHVal").textContent = "150 mm";
+    return t.applyParam('H');
   });
   await waitIdle(page);
   const paramsEnd = await api(page, "(a) => a.params()");

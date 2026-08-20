@@ -15,22 +15,29 @@ html, body {
   background: var(--bg); color: var(--text);
 }
 #app { display: flex; height: 100vh; }
-#stage { flex: 1; min-width: 0; display: flex; flex-direction: column;
-  padding: 12px; gap: 8px; overflow: auto; }
-/* iframe은 구도 프리셋 픽셀로 고정하고, 화면에 넣기 위해 축소만 한다.
-   축소는 transform이라 iframe 내부 레이아웃 픽셀에는 영향을 주지 않는다. */
-#clip { position: relative; overflow: hidden; border: 1px solid var(--border);
-  border-radius: 6px; background: #fff; flex-shrink: 0; }
-#sim { border: 0; display: block; transform-origin: top left; }
+#stage { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px; gap: 8px; }
+#stageScroll { flex: 1; min-height: 0; overflow: auto; }
+
+/* 구도 고정 — 캔버스 컨테이너를 픽셀로 못박는다. 창 크기가 줄어도 축소되지 않고
+   #stageScroll이 스크롤될 뿐이므로, 밴드 픽셀 크기는 창과 무관하게 재현된다.
+   cssW = bandW + 134 (여백 12+12 + 그래프 96 + 간격 14), cssH = bandH1to1 + 20 */
+#canvasWrap {
+  width: 934px; height: 820px;      /* 기본 구도: 정사각(밴드 800×800) */
+  flex: none; flex-shrink: 0;
+  position: relative; background: #ffffff;
+  box-shadow: 0 0 0 1px var(--border);   /* border 대신 — 컨테이너 크기에 영향 없음 */
+}
+#canvas { display: block; width: 100%; height: 100%; background: #ffffff; }
+
 #stageInfo { font-size: 11px; color: var(--muted); line-height: 1.6;
   font-variant-numeric: tabular-nums; }
-
-.notice { font-size: 12px; padding: 8px 10px; border-radius: 6px;
-  border: 1px solid #d6e0fb; background: #f0f4ff; line-height: 1.6; }
-.notice b { color: var(--accent); }
 .warnbar { display: none; font-size: 12px; padding: 8px 10px; border-radius: 6px;
   border: 1px solid #f3c9c4; background: #fdeaea; color: #c0392b; line-height: 1.6; }
 .warnbar.show { display: block; }
+
+/* script.js가 요구하는 index.html 패널 마크업 — 화면에서만 치운다.
+   display:none이 아니라 화면 밖으로 밀어야 값·레이아웃을 읽을 수 있다. */
+#hiddenPanel { position: absolute; left: -99999px; top: 0; width: 340px; }
 
 #panel {
   width: 340px; flex-shrink: 0; background: var(--panel-bg);
@@ -78,24 +85,22 @@ button.std:disabled { opacity: .45; cursor: default; }
 </style>
 </head>
 <body>
+
 <div id="app">
   <div id="stage">
-    <div class="notice" id="serveNotice">
-      이 페이지는 <b>로컬 서버로 띄워야</b> 동작합니다(<code>npx serve</code> 등).
-      더블클릭(<code>file://</code>)으로 열면 브라우저 보안 정책 때문에 iframe 안의
-      시뮬레이션에 접근할 수 없습니다. USB로 백업해 오프라인에서 쓸 때도 같습니다.
-    </div>
     <div class="warnbar" id="anisoBanner"></div>
-    <div id="clip"><iframe id="sim" src="about:blank"></iframe></div>
+    <div id="stageScroll">
+      <div id="canvasWrap"><canvas id="canvas"></canvas></div>
+    </div>
     <div id="stageInfo"></div>
   </div>
 
   <div id="panel">
     <h1>논문 그림 캡처</h1>
-    <div class="sub">시뮬레이션 화면은 그대로 두고, 제목·화살표·치수선·라벨이 없는
-      깨끗한 PNG를 한 장씩 뽑습니다. 최종 배치는 직접 하세요.</div>
+    <div class="sub">제목·화살표·치수선·라벨이 없는 깨끗한 PNG를 한 장씩 뽑습니다.
+      최종 배치는 직접 하세요. 더블클릭으로 열려도 그대로 동작합니다.</div>
 
-    <h2>구도 (iframe 크기)</h2>
+    <h2>구도 (밴드 픽셀)</h2>
     <div class="segbtns" id="viewPresetButtons">
       <button data-vp="sq">정사각</button>
       <button data-vp="wide">와이드</button>
@@ -113,26 +118,26 @@ button.std:disabled { opacity: .45; cursor: default; }
     <h2>파라미터</h2>
     <div class="row">
       <label style="width:60px">높이 H</label>
-      <input type="range" id="hSlider" min="20" max="300" step="1" value="150">
-      <span class="valbox" id="hVal">150 mm</span>
+      <input type="range" id="capH" min="20" max="300" step="1" value="150">
+      <span class="valbox" id="capHVal">150 mm</span>
     </div>
     <div class="row">
       <label style="width:60px">거리 L</label>
-      <input type="range" id="lSlider" min="10" max="1000" step="1" value="100">
-      <span class="valbox" id="lVal">100 mm</span>
+      <input type="range" id="capL" min="10" max="1000" step="1" value="100">
+      <span class="valbox" id="capLVal">100 mm</span>
     </div>
     <div class="row">
       <label style="width:60px">파장 λ</label>
-      <input type="range" id="lamSlider" min="1" max="30" step="0.1" value="12">
-      <span class="valbox" id="lamVal">12 cm</span>
+      <input type="range" id="capLam" min="1" max="30" step="0.1" value="12">
+      <span class="valbox" id="capLamVal">12 cm</span>
     </div>
-    <div class="hint" id="paramHint">슬라이더를 놓으면 다시 계산합니다(수 초~수십 초).</div>
+    <div class="capSize">슬라이더를 놓으면 다시 계산합니다(수 초~수십 초).</div>
 
     <h2>위상</h2>
     <div class="row">
       <label style="width:48px">위상</label>
-      <input type="range" id="phaseSlider" min="0" max="359" step="1" value="0">
-      <span class="valbox" id="phaseVal">0°</span>
+      <input type="range" id="capPhase" min="0" max="359" step="1" value="0">
+      <span class="valbox" id="capPhaseVal">0°</span>
     </div>
     <div class="capSize">캡처는 항상 일시정지 상태에서 이 위상으로 찍습니다.</div>
 
@@ -169,8 +174,99 @@ button.std:disabled { opacity: .45; cursor: default; }
   </div>
 </div>
 
+<!-- ===================================================================
+     script.js가 요구하는 조작 패널 — index.html의 #panel 마크업을 그대로
+     복사한 것이다. 화면 밖으로 밀어 두기만 하고 구조는 건드리지 않는다.
+     (index.html을 고칠 때 여기도 같이 맞춰야 한다 — tests/dom-contract.js가 검사)
+     =================================================================== -->
+<div id="hiddenPanel" aria-hidden="true">
+    <h1>도선 막대 회절</h1>
+    <div class="sub">x=0에 도선 N개를 세로로 쌓아 도선 막대(장애물)를 만들고,
+      왼→오른 평면파의 회절을 봅니다. 굵기 2a가 간격 d 이상이면 도선이 닿아
+      솔리드 막대가 됩니다. 전기장(도선과 평행 성분) 한 가지만 그립니다.</div>
+
+    <h2>장애물 설정</h2>
+    <div class="segbtns" id="modeButtons">
+      <button id="modeWireBtn" class="active">도선 배열 모드</button>
+      <button id="modeSolidBtn">솔리드 막대 모드</button>
+    </div>
+    <div id="wireControls">
+      <div class="row">
+        <label style="width:60px">개수 N</label>
+        <input type="range" id="nSlider" min="2" max="120" step="1" value="40">
+        <span class="valbox" id="nVal"></span>
+      </div>
+      <div class="row">
+        <label style="width:60px">간격 d</label>
+        <input type="range" id="dSlider" min="0.5" max="20" step="0.1" value="4">
+        <span class="valbox" id="dVal"></span>
+      </div>
+      <div class="row">
+        <label style="width:60px">굵기 a</label>
+        <input type="range" id="aSlider" min="0.05" max="6" step="0.05" value="1">
+        <span class="valbox" id="aVal"></span>
+      </div>
+    </div>
+    <div id="solidControls" style="display:none">
+      <div class="row">
+        <label style="width:60px">장애물 높이 H</label>
+        <input type="range" id="hSlider" min="20" max="300" step="1" value="150">
+        <span class="valbox" id="hVal"></span>
+      </div>
+    </div>
+
+    <h2>파동 설정</h2>
+    <div class="row">
+      <label style="width:48px">파장 λ</label>
+      <input type="range" id="lamSlider" min="1" max="30" step="0.1" value="12">
+      <span class="valbox" id="lamVal"></span>
+    </div>
+    <div class="row">
+      <label style="width:48px">진폭 A</label>
+      <input type="range" id="ampSlider" min="0" max="2" step="0.05" value="1">
+      <span class="valbox" id="ampVal"></span>
+    </div>
+    <div class="row">
+      <label style="width:60px">스크린 거리 L</label>
+      <input type="range" id="lSlider" min="10" max="1000" step="1" value="100">
+      <span class="valbox" id="lVal"></span>
+    </div>
+
+    <h2>화면 보기 (줌)</h2>
+    <div class="segbtns" id="viewModeButtons">
+      <button id="viewMode3bandBtn" class="active">3분할 뷰</button>
+      <button id="viewMode1to1Btn">1:1 관찰 모드</button>
+    </div>
+    <div class="segbtns" id="viewFieldButtons" style="display:none">
+      <button id="viewFieldIncBtn">① 입사</button>
+      <button id="viewFieldScBtn">② 산란</button>
+      <button id="viewFieldTotalBtn" class="active">③ 중첩</button>
+    </div>
+    <div class="zoomRow">
+      <button class="zoomBtn" id="zoomOutBtn">−</button>
+      <span class="zoomPct" id="zoomPctVal">100%</span>
+      <button class="zoomBtn" id="zoomInBtn">+</button>
+    </div>
+    <button class="zoomResetBtn" id="zoomResetBtn">⤾ 기본 보기</button>
+
+    <h2>애니메이션</h2>
+    <div class="ctrlrow">
+      <button class="std" id="playBtn">‖ 일시정지</button>
+    </div>
+    <div class="row" id="phaseWrap">
+      <label style="width:48px">위상</label>
+      <input type="range" id="phaseSlider" min="0" max="360" step="1" value="0">
+      <span class="valbox" id="phaseVal">0°</span>
+    </div>
+    <div class="hint" id="phaseHint" style="display:none"></div>
+
+    <h2>현재 상태</h2>
+    <div class="info" id="infoBox"></div>
+</div>
+
 <div id="busy"><div id="busyBox"><span id="busyMsg">계산 중…</span><small id="busySub"></small></div></div>
 
+<script src="script.js"></script>
 <script src="capture.js"></script>
 </body>
 </html>

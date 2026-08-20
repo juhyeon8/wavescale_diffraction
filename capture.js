@@ -1,24 +1,24 @@
 /* 회절 시뮬레이션 — 논문 그림 캡처 도구 (capture.html 전용)
  *
- * index.html을 같은 출처 iframe으로 띄우고, 그 안의 window.__capture(§33) 훅을
- * 호출해 PNG를 받아 부모 쪽에서 저장한다. index.html / style.css / script.js의
- * 화면 UI는 전혀 건드리지 않는다.
+ * script.js를 같은 페이지에서 직접 불러 window.__capture(§33)를 호출한다.
+ * iframe이 없으므로 동일 출처 제약이 없고, 더블클릭(file://)으로 열어도 동작한다.
  *
- * 구도(iframe 픽셀)는 부모가 고정한다 — 창 크기와 무관하게 재현 가능해야 하므로
- * 미리보기 축소는 CSS transform으로만 하고 iframe의 레이아웃 픽셀은 바꾸지 않는다.
+ * script.js가 요구하는 조작 패널 마크업은 capture.html의 #hiddenPanel에 그대로
+ * 들어 있다(화면 밖으로만 밀어 둠). 파라미터를 바꿀 때는 그 원본 슬라이더에 값을
+ * 넣고 input 이벤트를 발생시킨다 — 기존 바인딩 로직을 우회하지 않는다.
+ *
+ * 구도는 #canvasWrap을 픽셀로 고정해 잡는다(창 크기와 무관):
+ *   cssW = bandW + 134,  cssH = bandH1to1 + 20
  */
 (function () {
   "use strict";
 
-  // 구도 프리셋 — iframe 픽셀 크기를 그대로 고정한다.
-  // 역산 공식: bandW = iframe_W − 475, bandH1to1 = iframe_H − 20 (실측으로 검증할 것)
   const VIEW_PRESETS = [
-    { key: 'sq', label: '정사각', w: 1275, h: 820, targetBand: [800, 800] },
-    { key: 'wide', label: '와이드', w: 1675, h: 470, targetBand: [1200, 450] },
-    { key: 'sqtall', label: '여유크롭', w: 1275, h: 900, targetBand: [800, 880] },
+    { key: 'sq', label: '정사각', w: 934, h: 820, targetBand: [800, 800] },
+    { key: 'wide', label: '와이드', w: 1334, h: 470, targetBand: [1200, 450] },
+    { key: 'sqtall', label: '여유크롭', w: 934, h: 900, targetBand: [800, 880] },
   ];
-  const KIND_LABEL = { inc: '① 입사파', sc: '② 산란파', total: '③ 중첩', plot: '스크린 세기 그래프' };
-  const READY_TIMEOUT = 60000;   // 1:1 모드는 격자가 3배라 recompute가 20초를 넘기도 한다
+  const READY_TIMEOUT = 90000;   // 1:1 모드는 격자가 3배라 recompute가 30초를 넘기도 한다
 
   const ui = {
     viewPreset: 'sq',
@@ -29,67 +29,32 @@
   };
 
   const $ = (id) => document.getElementById(id);
-  const sim = $("sim");
-  const clip = $("clip");
-  let childOK = false;
+  const wrap = $("canvasWrap");
 
-  // ---------------------------------------------------------------- 유틸
   function busy(on, msg, sub) {
     $("busyMsg").textContent = msg || "계산 중…";
     $("busySub").textContent = sub || "";
     $("busy").classList.toggle("show", !!on);
   }
 
-  function api() {
-    // 동일 출처가 아니면(= file://로 연 경우) 접근 자체가 예외를 던진다.
-    try {
-      const w = sim.contentWindow;
-      return (w && w.__capture) ? w.__capture : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function requireApi() {
-    const a = api();
-    if (!a) {
-      showBanner("iframe 안의 시뮬레이션에 접근할 수 없습니다 — 로컬 서버로 열었는지 확인하세요"
-        + " (file://에서는 동작하지 않습니다).");
-      return null;
-    }
-    return a;
-  }
+  function api() { return window.__capture || null; }
 
   function showBanner(text) {
     const b = $("anisoBanner");
     b.textContent = text;
     b.classList.add("show");
   }
-
   function hideBanner() { $("anisoBanner").classList.remove("show"); }
 
   function currentViewPreset() {
     return VIEW_PRESETS.find((p) => p.key === ui.viewPreset) || VIEW_PRESETS[0];
   }
 
-  // ------------------------------------------------- iframe 크기 · 미리보기 축소
-  function fitPreview() {
-    const vp = currentViewPreset();
-    const stage = $("stage");
-    const availW = Math.max(200, stage.clientWidth - 24);
-    const availH = Math.max(200, stage.clientHeight - 150);
-    const k = Math.min(1, availW / vp.w, availH / vp.h);
-    sim.style.transform = "scale(" + k + ")";
-    clip.style.width = Math.round(vp.w * k) + "px";
-    clip.style.height = Math.round(vp.h * k) + "px";
-    return k;
-  }
-
-  function applyIframeSize() {
-    const vp = currentViewPreset();
-    sim.style.width = vp.w + "px";
-    sim.style.height = vp.h + "px";
-    return fitPreview();
+  // 숨긴 원본 슬라이더에 값을 넣고 input 이벤트를 발생시킨다(기존 핸들러가 처리).
+  function setSlider(id, value) {
+    const el = $(id);
+    el.value = String(value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
   // ------------------------------------------------------------ 상태 표시
@@ -102,7 +67,7 @@
     const bandH = (L.viewMode === '1to1') ? L.bandH1to1 : L.bandH;
 
     $("viewPresetVal").textContent =
-      "iframe " + vp.w + " × " + vp.h + " px → 밴드 실측 "
+      "컨테이너 " + vp.w + " × " + vp.h + " px → 밴드 실측 "
       + L.bandW.toFixed(0) + " × " + bandH.toFixed(0)
       + " px (목표 " + vp.targetBand[0] + " × " + vp.targetBand[1] + ")";
     $("capSizeVal").textContent = an.W + " × " + an.H + " px";
@@ -110,7 +75,7 @@
       "격자 " + L.gridW + " × " + L.gridH
       + " · 픽셀축척 가로 " + an.pxPerMm_x.toFixed(3) + " px/mm, 세로 " + an.pxPerMm_y.toFixed(3)
       + " px/mm · 세로:가로 축척 ×" + an.scaleRatio.toFixed(2)
-      + " · 미리보기는 축소해 보여줄 뿐 캡처 크기와 무관합니다.";
+      + " · 컨테이너는 창 크기와 무관하게 고정됩니다(작으면 스크롤).";
 
     if (an.isotropic) hideBanner();
     else showBanner("비등방 뷰 — 세로:가로 축척 ×" + an.scaleRatio.toFixed(1)
@@ -126,51 +91,59 @@
       b.classList.toggle("active", b.dataset.p === ui.capPreset));
   }
 
-  // ------------------------------------------------------- 자식 상태 반영
-  // 크기·파라미터를 바꾸면 자식이 recompute를 돌린다. 배열 참조 교체로 완료를
-  // 판정하는 __capture.ready()를 기다린다(부모가 recompute를 직접 부르지 않는다).
+  // ------------------------------------------------- 구도 · 카메라 · 파라미터
+  // 컨테이너 크기를 바꾸면 script.js의 resize()가 돌면서 recompute가 일어난다.
+  // 완료 판정은 __capture.ready()(solver 배열 참조 교체 폴링)를 그대로 쓴다.
   async function applyViewPreset(key) {
-    const a = requireApi();
+    const a = api();
     if (!a) return;
-    const prev = currentViewPreset();
     ui.viewPreset = key;
     const vp = currentViewPreset();
-    const changed = (vp.w !== prev.w || vp.h !== prev.h) || sim.style.width !== vp.w + "px";
     syncButtons();
-    if (!changed) { applyIframeSize(); refreshStatus(); return; }
-    busy(true, "구도 변경 — 다시 계산 중…", vp.w + " × " + vp.h + " px");
+    const changed = (wrap.style.width !== vp.w + "px" || wrap.style.height !== vp.h + "px");
+    if (!changed) { refreshStatus(); return; }
+    busy(true, "구도 변경 — 다시 계산 중…", "컨테이너 " + vp.w + " × " + vp.h + " px");
     a.expectRecompute();
-    applyIframeSize();
+    wrap.style.width = vp.w + "px";
+    wrap.style.height = vp.h + "px";
+    // resize()는 window resize 이벤트에 걸려 있으므로 컨테이너만 바꾸면 안 돈다.
+    window.dispatchEvent(new Event("resize"));
     try { await a.ready(READY_TIMEOUT); } catch (e) { showBanner(String(e.message || e)); }
     busy(false);
     refreshStatus();
   }
 
   async function applyCamera(mode) {
-    const a = requireApi();
+    const a = api();
     if (!a) return;
     ui.camera = mode;
     syncButtons();
     busy(true, "카메라 전환 — 다시 계산 중…",
-      mode === '1to1' ? "1:1 관찰 모드는 격자가 커서 20초 이상 걸릴 수 있습니다" : "");
+      mode === '1to1' ? "1:1 관찰 모드는 격자가 커서 30초 가까이 걸릴 수 있습니다" : "");
     a.setViewMode(mode);
     try { await a.ready(READY_TIMEOUT); } catch (e) { showBanner(String(e.message || e)); }
     busy(false);
     refreshStatus();
   }
 
-  async function applyParams() {
-    const a = requireApi();
+  // H·λ는 항상 recompute를 부른다. L은 1:1 모드에서 다시 그리기만 하므로(§20.6)
+  // 그 경우에는 재계산을 기다리지 않는다 — 안 그러면 ready()가 타임아웃까지 매달린다.
+  async function applyParam(which) {
+    const a = api();
     if (!a) return;
-    busy(true, "파라미터 변경 — 다시 계산 중…",
-      "H=" + ui.H_mm + "mm · L=" + ui.L_mm + "mm · λ=" + ui.lam_cm + "cm");
-    a.expectRecompute();
-    sim.contentWindow.postMessage({
-      type: "diffhub-setParams",
-      H_mm: ui.H_mm, L_mm: ui.L_mm, lam_cm: ui.lam_cm,
-    }, "*");
-    try { await a.ready(READY_TIMEOUT); } catch (e) { showBanner(String(e.message || e)); }
-    busy(false);
+    const willRecompute = (which !== 'L') || (a.layout().viewMode !== '1to1');
+    if (willRecompute) {
+      busy(true, "파라미터 변경 — 다시 계산 중…",
+        "H=" + ui.H_mm + "mm · L=" + ui.L_mm + "mm · λ=" + ui.lam_cm + "cm");
+      a.expectRecompute();
+    }
+    if (which === 'H') setSlider("hSlider", ui.H_mm);
+    else if (which === 'L') setSlider("lSlider", ui.L_mm);
+    else setSlider("lamSlider", ui.lam_cm);
+    if (willRecompute) {
+      try { await a.ready(READY_TIMEOUT); } catch (e) { showBanner(String(e.message || e)); }
+      busy(false);
+    }
     refreshStatus();
   }
 
@@ -194,8 +167,7 @@
 
   // ------------------------------------------------------------------ 저장
   function dataURLtoBlob(dataURL) {
-    const comma = dataURL.indexOf(",");
-    const bin = atob(dataURL.slice(comma + 1));
+    const bin = atob(dataURL.slice(dataURL.indexOf(",") + 1));
     const buf = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
     return new Blob([buf], { type: "image/png" });
@@ -212,9 +184,8 @@
     console.log("[캡처] " + name + " " + (blob.size / 1024).toFixed(0) + "KB");
   }
 
-  // 이미지는 자식이 그리고(§33), blob 저장은 부모가 한다.
   function captureOne(kind) {
-    const a = requireApi();
+    const a = api();
     if (!a) return null;
     applyPhase();
     applyOptions();
@@ -246,21 +217,21 @@
       ui.capPreset = b.dataset.p; syncButtons(); applyOptions(); refreshStatus();
     }));
 
-  function bindParam(id, key, valId, unit, parse) {
+  function bindParam(id, key, valId, unit, which) {
     const el = $(id);
     el.addEventListener("input", () => {
-      ui[key] = parse(el.value);
+      ui[key] = parseFloat(el.value);
       $(valId).textContent = el.value + " " + unit;
     });
-    el.addEventListener("change", applyParams);
+    el.addEventListener("change", () => applyParam(which));
   }
-  bindParam("hSlider", "H_mm", "hVal", "mm", parseFloat);
-  bindParam("lSlider", "L_mm", "lVal", "mm", parseFloat);
-  bindParam("lamSlider", "lam_cm", "lamVal", "cm", parseFloat);
+  bindParam("capH", "H_mm", "capHVal", "mm", 'H');
+  bindParam("capL", "L_mm", "capLVal", "mm", 'L');
+  bindParam("capLam", "lam_cm", "capLamVal", "cm", 'lam');
 
-  $("phaseSlider").addEventListener("input", function () {
+  $("capPhase").addEventListener("input", function () {
     ui.phaseDeg = parseFloat(this.value);
-    $("phaseVal").textContent = this.value + "°";
+    $("capPhaseVal").textContent = this.value + "°";
     applyPhase();
   });
 
@@ -273,44 +244,42 @@
   $("capPlotBtn").addEventListener("click", () => captureOne('plot'));
   $("capAllBtn").addEventListener("click", () => captureAll());
 
-  window.addEventListener("resize", fitPreview);
-
   // ------------------------------------------------------------------ 시작
+  let booted = false;
+
   async function boot() {
     syncButtons();
-    if (location.protocol === "file:") {
-      showBanner("file://로 열려 있습니다 — 로컬 서버(npx serve 등)로 열어야 캡처가 동작합니다.");
-      document.querySelectorAll("#panel button").forEach((b) => { b.disabled = true; });
+    const a = api();
+    if (!a) {
+      showBanner("script.js를 불러오지 못했습니다 — capture.html과 같은 폴더에 있는지 확인하세요.");
       return;
     }
-    busy(true, "시뮬레이션 불러오는 중…", "첫 계산에 수 초가 걸립니다");
-    applyIframeSize();
-    await new Promise((resolve) => {
-      sim.addEventListener("load", resolve, { once: true });
-      sim.src = "index.html?mode=solid&H=" + ui.H_mm + "&L=" + ui.L_mm + "&lam=" + ui.lam_cm;
-    });
-    // 자식의 첫 recompute가 끝나 __capture가 노출될 때까지 기다린다.
-    for (let i = 0; i < 600 && !api(); i++) await new Promise((r) => setTimeout(r, 100));
-    const a = requireApi();
-    if (!a) { busy(false); return; }
-    childOK = true;
+    // 솔리드 막대 모드로 맞춘다(파장별 비교는 틈 없는 막대에서 해야 한다).
+    if (a.params().mode !== 'solid') $("modeSolidBtn").click();
     a.pause();
     a.setPhaseDeg(ui.phaseDeg);
-    busy(false);
-    await applyCamera(ui.camera);      // 기본 1:1 관찰 모드
+    // H·L·λ 기본값은 script.js의 state 기본값과 같으므로 여기서 다시 넣지 않는다
+    // (넣으면 불필요한 recompute가 한 번 더 돈다).
+    const p0 = a.params();
+    ui.H_mm = Math.round(p0.H_mm); ui.L_mm = p0.L_mm; ui.lam_cm = p0.lam_cm;
+    $("capH").value = String(ui.H_mm); $("capHVal").textContent = ui.H_mm + " mm";
+    $("capL").value = String(ui.L_mm); $("capLVal").textContent = ui.L_mm + " mm";
+    $("capLam").value = String(ui.lam_cm); $("capLamVal").textContent = ui.lam_cm + " cm";
+    booted = true;
+    await applyCamera(ui.camera);       // 기본 1:1 관찰 모드
     applyOptions();
     refreshStatus();
   }
 
-  // 검증용 훅 — 부모 쪽 상태와 저장 경로를 테스트에서 그대로 쓴다.
+  // 검증용 훅
   window.__captureTool = {
     ui: ui,
     presets: VIEW_PRESETS,
     api: api,
-    ready: function () { return childOK; },
+    ready: function () { return booted; },
     applyViewPreset: applyViewPreset,
     applyCamera: applyCamera,
-    applyParams: applyParams,
+    applyParam: applyParam,
     applyPhase: applyPhase,
     applyOptions: applyOptions,
     refreshStatus: refreshStatus,

@@ -8,6 +8,7 @@
   const NUM_POINTS = 241;   // 메인 플롯 표본 수(§27.2)
   const SWEEP_POINTS = 24;  // λ 스윕 표본 수(§34.1). 이 한 줄만 10으로 되돌리면 이전 동작 복귀.
   const CROSSING_LAM_MIN = 2.0;  // 교차 탐색 하한 cm(§34.3) — 이 아래 부호 변화는 이산화 기인 가능
+  const LABEL_MOM = "입사파-산란파 중첩";   // §35 범례 라벨 단일 출처
 
   // =====================================================================
   // 1. 상태
@@ -387,7 +388,7 @@
     ctx.font = `${LEGEND_PX * ts}px sans-serif`; ctx.textAlign = "left";
     ctx.strokeStyle = "#2f6feb"; ctx.setLineDash([]); ctx.lineWidth = 1.8 * scale;
     ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 16 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 16 * ts); ctx.stroke();
-    ctx.fillStyle = "#333"; ctx.fillText("도선 막대", m.left + 50 * ts, m.top + 22 * ts);
+    ctx.fillStyle = "#333"; ctx.fillText(LABEL_MOM, m.left + 50 * ts, m.top + 22 * ts);
     ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5 * scale, 4 * scale]);
     ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 42 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 42 * ts); ctx.stroke();
     ctx.setLineDash([]);
@@ -402,8 +403,8 @@
       : "";
     el.infoBox.innerHTML =
       `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span style="font-size:11px;color:#6b6b72">(하위헌스-프레넬 앱의 a²/(λz)는 이 값의 4배)</span><br>` +
-      `I₀ — 도선 막대 <b>${mom.I0.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.I0.toFixed(3)}</b> (입사=1.000)<br>` +
-      `Īₛ — 도선 막대 <b>${mom.sbar.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.sbar.toFixed(3)}</b><br>` +
+      `I₀ — ${LABEL_MOM} <b>${mom.I0.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.I0.toFixed(3)}</b> (입사=1.000)<br>` +
+      `Īₛ — ${LABEL_MOM} <b>${mom.sbar.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.sbar.toFixed(3)}</b><br>` +
       `Īₛ 상대 차이 <b>${diffPct.toFixed(1)}%</b>` + warnBadge;
   }
 
@@ -628,7 +629,7 @@
     ctx.font = `${SW_LEGEND_PX * ts}px sans-serif`; ctx.textAlign = "left";
     ctx.strokeStyle = "#2f6feb"; ctx.setLineDash([]); ctx.lineWidth = 1.8 * scale;
     ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 16 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 16 * ts); ctx.stroke();
-    ctx.fillStyle = "#333"; ctx.fillText("도선 막대 (실선)", m.left + 50 * ts, m.top + 22 * ts);
+    ctx.fillStyle = "#333"; ctx.fillText(`${LABEL_MOM} (실선)`, m.left + 50 * ts, m.top + 22 * ts);
     ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5 * scale, 4 * scale]);
     ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 42 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 42 * ts); ctx.stroke();
     ctx.setLineDash([]);

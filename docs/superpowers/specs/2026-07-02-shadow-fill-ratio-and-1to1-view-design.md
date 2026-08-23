@@ -1237,3 +1237,85 @@ F는 캐시가 빈 상태에서 재야 의미가 있다. selfCheck의 A 케이�
   compare 쪽과 바이트 단위로 같아 같은 패치를 그대로 적용)
 - `dist/compare.js` / `dist/compare.html` — README의 고정 플래그로 재빌드
   (`dist`에는 compare-print가 없어 대상 아님)
+
+## 36. compare-print 축·범례 한/영 전환
+
+### 36.1 문자열은 한 테이블에서만
+
+`compare-print.js` 상단(`LABEL_MOM` 바로 아래)의 `PLOT_LABELS`가 캔버스에 그려지는
+모든 문자열의 단일 출처다. 키는 **8개**다.
+
+| 키 | ko | en |
+|---|---|---|
+| `mainX` | 스크린 위치 y (mm) | Position on screen y (mm) |
+| `mainY` | I / I₀(입사) | I(y) / I₀ |
+| `mom` | `LABEL_MOM` (입사파-산란파 중첩) | Incident - scattered superposition |
+| `huy` | `LABEL_HUY` (하위헌스-프레넬) | Huygens-Fresnel |
+| `sweepX` | 파장 λ (cm, 로그축) | Wavelength λ (cm, log scale) |
+| `sweepY` | Īₛ (그림자 영역의 평균 상대 세기) | Īₛ (shadow mean intensity) |
+| `momSolid` | `LABEL_MOM` + " (실선)" | Incident - scattered superposition (solid) |
+| `huyDashed` | `LABEL_HUY` + " (점선)" | Huygens-Fresnel (dashed) |
+
+ko 항목은 `LABEL_MOM` / `LABEL_HUY`를 **참조**한다 — 패널 DOM(`updateInfoBox`)이
+`LABEL_MOM`을 그대로 쓰므로 §35의 단일 출처 규약이 깨지지 않는다.
+
+용어는 캡처 도구 §34에서 확정한 것을 따른다(x축 `Position on screen y (단위)`,
+y축 `I(y) / I₀`). 두 범례의 하이픈은 모두 **ASCII 하이픈-마이너스(U+002D)** 다 —
+en dash(U+2013)는 폰트 폴백에서 깨질 여지가 있어 쓰지 않는다.
+
+`normLang(v)`는 `'en'`만 `'en'`으로 보고 나머지는 예외 없이 `'ko'`로 떨어뜨린다.
+
+### 36.2 화면과 PNG에 동시에 적용된다
+
+캡처 도구(§34)와 달리 여기서는 **화면 캔버스가 곧 인쇄 미리보기**다 —
+같은 `drawMainPlot` / `drawSweepChart`가 화면과 오프스크린 PNG를 모두 그리므로
+토글이 양쪽에 동시에 반영된다. 좌표·여백·폰트 크기 계산식(`m`, `ts`, `TICK_PX` 등)은
+언어와 무관하다.
+
+### 36.3 무엇이 안 바뀌나
+
+- **패널 DOM은 항상 한국어**다. `updateInfoBox()` · `formatCrossings()` ·
+  `syncLabels()` · `#sweepProgress` · `.hint` · 버튼 이름은 손대지 않았다.
+- 눈금 숫자, 교차점 라벨(`λ* = … cm, Īₛ* = …`), 우상단 캡션(`H = … mm, L = … mm`),
+  CSV 헤더는 이미 언어 중립이라 그대로다.
+- 언어 전환은 **재계산을 부르지 않는다**. `redrawCharts()`(옛 `redrawForFontScale`)가
+  `lastPlot` · `lastSweep` 스냅샷으로 두 차트를 다시 그릴 뿐이다 — 측정 19 ms,
+  `#infoBox` · `#sweepProgress` 변경 0회, 스윕 CSV(885자·25행) 문자열 불변.
+- `lang='ko'` PNG는 이 변경 전후로 **바이트 완전 동일**하다(λ=2/5/20 메인 3장 + 스윕 1장).
+
+### 36.4 조작 · 지속 · URL
+
+- `compare-print.html`의 체크박스 `#langEnCheck` — "라벨 언어" 절.
+- 저장 키는 `comparePrint.lang`. 캡처 도구의 `capture.lang`과 **별도 키**다
+  (검증을 마친 캡처 도구 동작에 영향을 주지 않기 위해서다. 통합은 나중 과제).
+  `localStorage` 접근은 try/catch — `file://`에서 저장소가 막혀도 부팅·토글이 된다.
+- `?lang=en`으로 열면 영문으로 시작한다. **URL 파라미터가 저장값보다 우선**하고,
+  잘못된 값(`?lang=zz`)은 조용히 `ko`다.
+
+### 36.5 파일명
+
+`en`일 때만 확장자 앞에 `_en`이 붙는다. 메인·스윕 PNG 공통이며 `ko`는 기존 형식 그대로다.
+
+```
+diffraction_H100_L300_lam2_2400x1400.png        ko
+diffraction_H100_L300_lam2_2400x1400_en.png     en
+diffraction_H100_L300_lam2p5_2400x1400_en.png   소수 λ의 2p5 표기는 그대로
+sweep_H100_L300_lam1to30cm_2400x1400_en.png     스윕도 동일 규칙
+```
+
+### 36.6 스윕 y축 제목은 왜 짧은 문구인가
+
+회전된 y축 제목은 `(m.top + plotH/2)`를 중심으로 그려지고 여백 위로 넘어가도 되므로,
+잘림 판정의 실제 기준은 플롯 박스 높이가 아니라 **캔버스 가장자리**다.
+20 px(ts=1) 기준 폭과 글자 크기 ×2.0에서의 캔버스 상단 여유:
+
+| 문구 | 폭 | 1200×700 | 1920×1120 | 2400×1400 | 3600×2100 |
+|---|---|---|---|---|---|
+| ko `Īₛ (그림자 영역의 평균 상대 세기)` | 298.7 px | +5 | +9 | +11 | +16 |
+| en 초안 `Īₛ (shadow-region mean intensity)` | 306.3 px | **−2** | **−4** | **−5** | **−7** |
+| en 채택 `Īₛ (shadow mean intensity)` | 240.1 px | +64 | +102 | +128 | +192 |
+
+초안 문구는 한국어보다 7.6 px 길어 ×2.0에서 위쪽이 몇 px 잘렸다. 폰트를 자동으로
+줄이는 대신 문구를 짧게 잡았다(§4의 "자동 축소 금지" 원칙과 같은 결정).
+한국어는 ×2.0에서도 5~16 px 여유로 아슬아슬하지만 기존 동작이라 그대로 둔다 —
+바꾸면 ko PNG 회귀(§36.3)가 깨진다.

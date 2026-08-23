@@ -243,3 +243,81 @@ pad = gap = round(6 × (cw/1000) × fontScale)
 - 캡처에 쓰이는 격자 열 수는 어느 프리셋에서도 450열이다(gridWorld가 ZOOM_MIN까지
   미리 커버하므로 카메라가 그 절반을 본다). 1200px·1920px 출력은 업스케일이다.
 - `dist/` 재빌드(javascript-obfuscator)는 이번 작업 범위 밖.
+
+## 11. 그래프 축 이름 한/영 전환 (§34)
+
+### 11.1 문자열은 한 테이블에서만
+
+축 이름은 `script.js`의 `PLOT_LABELS`(§33.3 순수 헬퍼 구역, `formatTick` 바로 아래)
+한 곳에서만 정한다. 키는 **`xName` · `yName` 두 개뿐**이다.
+
+| lang | xName | yName |
+|---|---|---|
+| `ko` (기본) | 스크린 위의 위치 y | 스크린 세기 I(y) / I₀ |
+| `en` | Position on screen y | I(y) / I₀ |
+
+`captureLang(v)`는 `'en'`만 `'en'`으로 보고 나머지는 **예외 없이 조용히 `'ko'`**로
+떨어뜨린다. `plotLabels(lang)`이 테이블을 읽는 유일한 통로다.
+
+### 11.2 단위는 언어와 무관하게 뒤에 붙인다
+
+x축은 단위가 붙으므로 테이블에는 **단위 없는 본문만** 담고, 조립은
+`renderPlotCapture()`에서 한다.
+
+```js
+const LB = plotLabels(capture.lang);
+const xName = LB.xName + " (" + capture.unit + ")";   // "… y (cm)" | "… y (mm)"
+const yName = LB.yName;
+```
+
+`capture.unit`(`'cm' | 'mm'`)은 두 언어 공통이다. 눈금 숫자·포맷·단위 표기는
+언어에 따라 달라지지 않는다.
+
+### 11.3 무엇이 안 바뀌나
+
+- **라이브 화면은 한국어 그대로**다. `drawIntensityPlot` · `drawOverlay` ·
+  `drawOverlay1to1`의 한글 문자열은 손대지 않았다 — 언어 전환은 캡처 이미지와
+  패널 미리보기에만 나타난다. `capture.html`이 이 점을 한 줄로 안내한다.
+- **필드 캡처(`renderFieldCapture`)는 글자가 0개**라 언어와 무관하다.
+- 언어 전환은 `recompute()`를 부르지 않는다. `state`·`view`·`solver`·`layout`을
+  전혀 건드리지 않으므로 §3.3의 읽기 전용 규약이 그대로 유지된다(측정 16 ms).
+- `lang='ko'` 캡처는 이 변경 전후로 dataURL이 **문자열 완전 동일**하다(plot·inc·sc·total).
+
+### 11.4 파일명은 plot·en일 때만 `_en`
+
+`captureFileName(kind, W, H_mm, L_mm, lam_cm, phaseDeg, viewPreset, lang)` — `lang`은
+기존 호출부 하위 호환을 위해 **맨 뒤에** 붙인 선택 인자다.
+
+```
+diff_plot_…_w1200_sq.png       ko (기존과 동일)
+diff_plot_…_w1200_sq_en.png    en
+diff_total_…_w1200_sq.png      필드 캡처는 lang과 무관 — 접미사 없음
+```
+
+필드 캡처에 언어 접미사를 안 붙이는 이유는 텍스트가 없어 구분이 무의미하고, `ko`에
+접미사를 안 붙이는 이유는 기존 파일명(그리고 그것을 검사하는 `selfCheck()` 단언)을
+그대로 살리기 위해서다.
+
+### 11.5 조작과 저장
+
+`capture.html`의 "라벨 언어" 체크박스(`#capLangEn`)가 `capture.lang`을 바꾸고,
+값은 `localStorage`의 `capture.lang` 키에 저장된다(`file://`에서 저장소가 막혀도
+부팅되도록 `fontScale`과 같은 형태로 try/catch). 재계산이 없으므로 `busy()`
+오버레이는 띄우지 않는다. `captureMeta.lang`과 `__capture.labels(lang)`으로
+검증 코드가 현재 언어를 읽는다.
+
+### 11.6 영문에서 여백이 달라지는 것은 정상
+
+`box.l`은 y축 이름 높이의 실측값으로 역산하므로 언어에 따라 몇 px 달라진다.
+640px 출력 기준 실측:
+
+| 배율 | lang | 눈금 px | 축 이름 px | 플롯 영역 | boxWarn |
+|---|---|---|---|---|---|
+| ×0.8 | ko | 11 | 12 | 84.2 % | false |
+| ×0.8 | en | 11 | 12 | 84.5 % | false |
+| ×1.5 | ko | 13 | 15 | 78.5 % | false |
+| ×1.5 | en | 13 | 15 | 79.2 % | false |
+| ×3.0 | ko | 27 | 31 | 60.2 % | false |
+| ×3.0 | en | 27 | 31 | 61.2 % | false |
+
+차이는 어느 배율에서도 1 %p 안쪽이다(×1.5에서 `box.l` 49 → 47 px).

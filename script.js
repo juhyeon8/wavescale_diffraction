@@ -1003,6 +1003,7 @@
     halfHLines: false,         // 필드 패널의 ±H/2 가로 점선(기본 끔)
     unit: 'cm',                // 'cm' | 'mm'
     fontScale: 1.5,            // 그래프 캡처 글자 배율(0.8~3.0) — 선 두께에는 영향 없음
+    lang: 'ko',                // 'ko' | 'en' — 그래프 축 이름 언어(라이브 화면과 무관)
   };
 
   let captureMeta = null;
@@ -1033,12 +1034,25 @@
     return (parseFloat(t) === 0) ? "0" : t;
   }
 
+  // §33.3+ 그래프 축 이름 — 언어별 문자열은 여기 한 곳에서만 정한다.
+  // 라이브 화면(drawIntensityPlot 등)의 한글 라벨과는 무관하다.
+  const PLOT_LABELS = {
+    ko: { xName: "스크린 위의 위치 y", yName: "스크린 세기 I(y) / I₀" },
+    en: { xName: "Position on screen y", yName: "I(y) / I₀" },
+  };
+
+  function captureLang(v) { return (v === 'en') ? 'en' : 'ko'; }   // 그 외 값은 조용히 ko
+  function plotLabels(lang) { return PLOT_LABELS[captureLang(lang)]; }
+
   // 파일명에 물리 파라미터를 박는다(D9). viewPreset(구도)은 선택 접미사 — sq|wide|sqtall.
-  function captureFileName(kind, W, H_mm, L_mm, lam_cm, phaseDeg, viewPreset) {
+  // lang은 맨 뒤 선택 인자 — plot 캡처가 영문일 때만 "_en"이 더 붙는다(필드 캡처는 글자가
+  // 없어 언어 구분이 무의미하고, ko는 기존 파일명을 그대로 유지한다).
+  function captureFileName(kind, W, H_mm, L_mm, lam_cm, phaseDeg, viewPreset, lang) {
     const ph = String(Math.round(((phaseDeg % 360) + 360) % 360)).padStart(3, '0');
     const suffix = viewPreset ? ("_" + viewPreset) : "";
+    const langSfx = (kind === 'plot' && captureLang(lang) === 'en') ? "_en" : "";
     return "diff_" + kind + "_H" + Math.round(H_mm) + "mm_L" + Math.round(L_mm) + "mm"
-      + "_lam" + lam_cm + "cm_ph" + ph + "_w" + W + suffix + ".png";
+      + "_lam" + lam_cm + "cm_ph" + ph + "_w" + W + suffix + langSfx + ".png";
   }
 
   // 현재 뷰 모드의 카메라·종횡비
@@ -1243,8 +1257,9 @@
     for (let t = 0; t <= yMax + 1e-9; t += yStep)
       yTicks.push({ v: t, s: formatTick(t, yStep) });
 
-    const xName = "스크린 위의 위치 y (" + capture.unit + ")";
-    const yName = "스크린 세기 I(y) / I₀";
+    const LB = plotLabels(capture.lang);
+    const xName = LB.xName + " (" + capture.unit + ")";
+    const yName = LB.yName;
 
     c.font = tickPx + "px sans-serif";
     let yLabelW = 0;
@@ -1353,7 +1368,7 @@
       pxAtImax: Y(prof.Imax),
       shadowBandPx: [X(-H_m / 2), X(H_m / 2)],
       fontScale: capture.fontScale, tickPx: tickPx, axisPx: axisPx,
-      plotAreaFrac: areaFrac, boxWarn: boxWarn,
+      plotAreaFrac: areaFrac, boxWarn: boxWarn, lang: captureLang(capture.lang),
     };
     return cv;
   }
@@ -1389,7 +1404,7 @@
     const cv = renderCaptureCanvas(kind, W);
     return saveCanvasPNG(cv, captureFileName(kind, cv.width,
       barHeight_mm(state.N, state.d_mm), state.L_mm, state.lam_cm,
-      state.phase * 180 / Math.PI, viewPreset));
+      state.phase * 180 / Math.PI, viewPreset, capture.lang));
   }
 
   // §33.9 준비 단계 제어 API — 상태를 바꿀 수 있는 것은 여기 모인 것뿐이다.
@@ -1479,6 +1494,7 @@
     presets: CAPTURE_PRESETS,
     options: capture,
     fileName: captureFileName,
+    labels: function (lang) { const L = plotLabels(lang); return { xName: L.xName, yName: L.yName }; },
     get meta() { return captureMeta; },
     layout: function () {
       return {
@@ -1619,6 +1635,15 @@
       console.assert(
         captureFileName('total', 1200, 150, 100, 12, 0, 'sq') ===
         'diff_total_H150mm_L100mm_lam12cm_ph000_w1200_sq.png', "captureFileName 구도 접미사");
+      console.assert(
+        captureFileName('plot', 1200, 150, 100, 12, 0, 'sq', 'en') ===
+        'diff_plot_H150mm_L100mm_lam12cm_ph000_w1200_sq_en.png', "captureFileName 영문 접미사");
+      console.assert(
+        captureFileName('plot', 1200, 150, 100, 12, 0, 'sq', 'ko') ===
+        'diff_plot_H150mm_L100mm_lam12cm_ph000_w1200_sq.png', "captureFileName 한글은 접미사 없음");
+      console.assert(captureLang('zz') === 'ko' && captureLang('en') === 'en', "captureLang 폴백");
+      console.assert(!/[\uAC00-\uD7A3\u3130-\u318F\u1100-\u11FF]/.test(
+        plotLabels('en').xName + plotLabels('en').yName), "영문 라벨에 한글 없음");
       // 대칭 배열 → I(y) 대칭성 (가로축이 위치임을 보장하는 물리 단언)
       const pr = sampleScreenProfileCap(state.L_mm / 1000, base.Yw, 40);
       let maxAsym = 0;

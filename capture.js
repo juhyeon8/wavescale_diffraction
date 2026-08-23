@@ -21,6 +21,8 @@
   const READY_TIMEOUT = 90000;   // 1:1 모드는 격자가 3배라 recompute가 30초를 넘기도 한다
   const FONT_SCALE_KEY = 'capture.fontScale';
   const FONT_SCALE_MIN = 0.8, FONT_SCALE_MAX = 3.0, FONT_SCALE_DEFAULT = 1.5;
+  const LANG_KEY = 'capture.lang';
+  const LANG_DEFAULT = 'ko';
 
   const ui = {
     viewPreset: 'sq',
@@ -29,6 +31,7 @@
     H_mm: 150, L_mm: 100, lam_cm: 12,
     phaseDeg: 0,
     fontScale: FONT_SCALE_DEFAULT,
+    lang: LANG_DEFAULT,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -88,6 +91,31 @@
     refreshPlotPreview();
   }
 
+  // ------------------------------------------------- 그래프 축 이름 언어(L)
+  // 라이브 캔버스의 그래프는 계속 한국어로 남는다 — 캡처와 미리보기에만 적용된다.
+  function normLang(v) { return (v === 'en') ? 'en' : LANG_DEFAULT; }
+
+  function loadLang() {
+    try {
+      const raw = window.localStorage.getItem(LANG_KEY);
+      return (raw === null) ? LANG_DEFAULT : normLang(raw);
+    } catch (e) { return LANG_DEFAULT; }   // file://에서 저장소가 막혀도 동작해야 한다
+  }
+
+  function saveLang(v) {
+    try { window.localStorage.setItem(LANG_KEY, String(v)); } catch (e) { /* 무시 */ }
+  }
+
+  // 재계산이 없으므로 busy() 오버레이를 띄우지 않는다(즉시 끝난다).
+  function applyLang(v, persist) {
+    const a = api();
+    ui.lang = normLang(v);
+    if (a) a.options.lang = ui.lang;
+    $("capLangEn").checked = (ui.lang === 'en');
+    if (persist) saveLang(ui.lang);
+    refreshPlotPreview();
+  }
+
   // 그래프 캡처는 화면에 없으므로 작은 미리보기를 그려 배율 변화를 바로 보여준다.
   function refreshPlotPreview() {
     const a = api();
@@ -98,7 +126,8 @@
       $("plotPreviewInfo").textContent =
         "눈금 " + m.tickPx + "px · 축 이름 " + m.axisPx + "px · 플롯 영역 "
         + (m.plotAreaFrac * 100).toFixed(0) + "% (640px 기준 미리보기)"
-        + (m.boxWarn ? " — 배율이 큽니다" : "");
+        + (m.boxWarn ? " — 배율이 큽니다" : "")
+        + " · 라벨 " + ui.lang.toUpperCase();
     } catch (e) { /* 아직 계산 전이면 조용히 넘어간다 */ }
   }
 
@@ -211,6 +240,7 @@
     a.options.shadowBand = $("capShadowBand").checked;
     a.options.preset = ui.capPreset;
     a.options.fontScale = ui.fontScale;
+    a.options.lang = ui.lang;
   }
 
   // ------------------------------------------------------------------ 저장
@@ -239,7 +269,8 @@
     applyOptions();
     const dataURL = a.dataURL(kind, ui.capPreset);
     const p = a.params();
-    const name = a.fileName(kind, a.meta.W, p.H_mm, p.L_mm, p.lam_cm, p.phaseDeg, ui.viewPreset);
+    const name = a.fileName(kind, a.meta.W, p.H_mm, p.L_mm, p.lam_cm, p.phaseDeg, ui.viewPreset,
+      ui.lang);
     const blob = dataURLtoBlob(dataURL);
     saveBlob(blob, name);
     refreshStatus();
@@ -289,6 +320,10 @@
 
   $("capFontScale").addEventListener("input", function () { applyFontScale(this.value, true); });
 
+  $("capLangEn").addEventListener("change", function () {
+    applyLang(this.checked ? 'en' : 'ko', true);
+  });
+
   $("capIncBtn").addEventListener("click", () => captureOne('inc'));
   $("capScBtn").addEventListener("click", () => captureOne('sc'));
   $("capTotalBtn").addEventListener("click", () => captureOne('total'));
@@ -317,6 +352,7 @@
     $("capL").value = String(ui.L_mm); $("capLVal").textContent = ui.L_mm + " mm";
     $("capLam").value = String(ui.lam_cm); $("capLamVal").textContent = ui.lam_cm + " cm";
     applyFontScale(loadFontScale(), false);   // 지난번 배율 복원(없으면 기본 1.5)
+    applyLang(loadLang(), false);             // 지난번 라벨 언어 복원(없으면 기본 ko)
     booted = true;
     await applyCamera(ui.camera);       // 기본 1:1 관찰 모드
     applyOptions();
@@ -336,6 +372,7 @@
     applyPhase: applyPhase,
     applyOptions: applyOptions,
     applyFontScale: applyFontScale,
+    applyLang: applyLang,
     refreshPlotPreview: refreshPlotPreview,
     refreshStatus: refreshStatus,
     captureOne: captureOne,

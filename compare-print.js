@@ -27,11 +27,11 @@
     en: {
       mainX: "Position on screen y (mm)",
       mainY: "I(y) / I₀",
-      mom: "Incident - scattered superposition",
+      mom: "Incident-scattered superposition",
       huy: "Huygens-Fresnel",
       sweepX: "Wavelength λ (cm, log scale)",
       sweepY: "Īₛ (shadow mean intensity)",
-      momSolid: "Incident - scattered superposition (solid)",
+      momSolid: "Incident-scattered superposition (solid)",
       huyDashed: "Huygens-Fresnel (dashed)",
     },
   };
@@ -731,6 +731,8 @@
       console.assert(!/[\uAC00-\uD7A3\u3130-\u318F\u1100-\u11FF]/.test(
         Object.values(PLOT_LABELS.en).join("")), "영문 라벨에 한글 없음");
       console.assert(PLOT_LABELS.ko.mom === LABEL_MOM, "ko 범례는 LABEL_MOM 단일 출처");
+      console.assert(!/ - /.test(Object.values(PLOT_LABELS.en).join("|")),
+        "영문 라벨 하이픈 양옆에 공백 없음");
     }
     console.log("[검증] Y0(1)=", besselY0(1).toFixed(6), "(기대 0.088257)");
     {

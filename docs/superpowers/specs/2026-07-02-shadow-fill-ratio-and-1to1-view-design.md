@@ -1249,11 +1249,11 @@ F는 캐시가 빈 상태에서 재야 의미가 있다. selfCheck의 A 케이�
 |---|---|---|
 | `mainX` | 스크린 위치 y (mm) | Position on screen y (mm) |
 | `mainY` | I / I₀(입사) | I(y) / I₀ |
-| `mom` | `LABEL_MOM` (입사파-산란파 중첩) | Incident - scattered superposition |
+| `mom` | `LABEL_MOM` (입사파-산란파 중첩) | Incident-scattered superposition |
 | `huy` | `LABEL_HUY` (하위헌스-프레넬) | Huygens-Fresnel |
 | `sweepX` | 파장 λ (cm, 로그축) | Wavelength λ (cm, log scale) |
 | `sweepY` | Īₛ (그림자 영역의 평균 상대 세기) | Īₛ (shadow mean intensity) |
-| `momSolid` | `LABEL_MOM` + " (실선)" | Incident - scattered superposition (solid) |
+| `momSolid` | `LABEL_MOM` + " (실선)" | Incident-scattered superposition (solid) |
 | `huyDashed` | `LABEL_HUY` + " (점선)" | Huygens-Fresnel (dashed) |
 
 ko 항목은 `LABEL_MOM` / `LABEL_HUY`를 **참조**한다 — 패널 DOM(`updateInfoBox`)이

@@ -1004,12 +1004,27 @@
     unit: 'cm',                // 'cm' | 'mm'
     fontScale: 1.5,            // 그래프 캡처 글자 배율(0.8~3.0) — 선 두께에는 영향 없음
     lang: 'ko',                // 'ko' | 'en' — 그래프 축 이름 언어(라이브 화면과 무관)
+    screenLineEmph: 'normal',  // 'normal' | 'strong' | 'max' — 필드 캡처 스크린선 강조(§37)
   };
 
   let captureMeta = null;
   const ANISO_TOL = 0.005;     // 등방 판정 허용 오차 0.5%
 
   // §33.3 순수 헬퍼 — selfCheck() 단언 대상
+
+  // §37 스크린 위치선 강조 — 값은 s(=cw/1000) 배율 적용 전 기준.
+  // dash: null 이면 실선. halo: 0보다 크면 그 폭만큼 굵은 흰 선을 먼저 깔아
+  // 빨강/파랑 필드 어느 쪽 위에서도 선이 떨어져 보이게 한다.
+  const SCREEN_LINE_PRESETS = {
+    normal: { color: '#c0392b', width: 1.2, dash: [5, 4], halo: 0   },  // 현행과 동일
+    strong: { color: '#b02a1a', width: 2.2, dash: [7, 5], halo: 2.0 },
+    max:    { color: '#8e1b10', width: 3.2, dash: null,   halo: 2.6 },
+  };
+
+  function screenLinePreset(key) {
+    return SCREEN_LINE_PRESETS[key] || SCREEN_LINE_PRESETS.normal;   // 미지 값은 조용히 normal
+  }
+
   function capturePixelSize(W, aspectHW) {
     return { W: Math.round(W), H: Math.max(1, Math.round(W * aspectHW)) };
   }
@@ -1134,8 +1149,15 @@
     const Lx = state.L_mm / 1000;
     if (capture.screenLine && Lx >= cam.xMin && Lx <= cam.xMax) {
       const t = toPx(Lx, cam.Yw), b = toPx(Lx, -cam.Yw);
+      const sp = screenLinePreset(capture.screenLineEmph);
+      const dash = sp.dash ? sp.dash.map(function (v) { return v * s; }) : [];
       c.save();
-      c.strokeStyle = "#c0392b"; c.setLineDash([5 * s, 4 * s]); c.lineWidth = 1.2 * s;
+      c.setLineDash(dash);
+      if (sp.halo > 0) {   // 흰 헤일로를 먼저 — 같은 파선 패턴이라 틈은 비워 둔다
+        c.strokeStyle = "#ffffff"; c.lineWidth = (sp.width + sp.halo) * s;
+        c.beginPath(); c.moveTo(t.x, t.y); c.lineTo(b.x, b.y); c.stroke();
+      }
+      c.strokeStyle = sp.color; c.lineWidth = sp.width * s;
       c.beginPath(); c.moveTo(t.x, t.y); c.lineTo(b.x, b.y); c.stroke();
       c.restore();
     }
@@ -1182,6 +1204,7 @@
       gridColsUsed: crop ? Math.round(crop.sW) : 0,
       gridRowsUsed: crop ? Math.round(crop.sH) : 0,
       viewIsotropic: aniso.viewIsotropic, viewScaleRatio: aniso.viewScaleRatio,
+      screenLineEmph: capture.screenLineEmph,
     };
     console.log("[캡처] world x=[" + cam.xMin.toFixed(4) + ", " + cam.xMax.toFixed(4)
       + "] m, Yw=±" + cam.Yw.toFixed(4) + " m, 격자 " + captureMeta.gridColsUsed + "열 사용");
@@ -1642,6 +1665,10 @@
         captureFileName('plot', 1200, 150, 100, 12, 0, 'sq', 'ko') ===
         'diff_plot_H150mm_L100mm_lam12cm_ph000_w1200_sq.png', "captureFileName 한글은 접미사 없음");
       console.assert(captureLang('zz') === 'ko' && captureLang('en') === 'en', "captureLang 폴백");
+      console.assert(screenLinePreset('zz') === SCREEN_LINE_PRESETS.normal, "스크린선 프리셋 폴백");
+      console.assert(SCREEN_LINE_PRESETS.normal.width === 1.2
+        && SCREEN_LINE_PRESETS.normal.halo === 0
+        && String(SCREEN_LINE_PRESETS.normal.dash) === "5,4", "normal은 현행 값 고정");
       console.assert(!/[\uAC00-\uD7A3\u3130-\u318F\u1100-\u11FF]/.test(
         plotLabels('en').xName + plotLabels('en').yName), "영문 라벨에 한글 없음");
       // 대칭 배열 → I(y) 대칭성 (가로축이 위치임을 보장하는 물리 단언)

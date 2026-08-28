@@ -23,6 +23,8 @@
   const FONT_SCALE_MIN = 0.8, FONT_SCALE_MAX = 3.0, FONT_SCALE_DEFAULT = 1.5;
   const LANG_KEY = 'capture.lang';
   const LANG_DEFAULT = 'ko';
+  const EMPH_KEY = 'capture.screenLineEmph';
+  const EMPH_DEFAULT = 'normal';
 
   const ui = {
     viewPreset: 'sq',
@@ -32,6 +34,7 @@
     phaseDeg: 0,
     fontScale: FONT_SCALE_DEFAULT,
     lang: LANG_DEFAULT,
+    screenLineEmph: EMPH_DEFAULT,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -116,6 +119,32 @@
     refreshPlotPreview();
   }
 
+  // ------------------------------------------- 스크린 위치선 강조(§37)
+  // 필드 캡처(①②③)에만 적용된다 — 라이브 화면과 그래프 캡처는 그대로다.
+  function normEmph(v) {
+    return (v === 'strong' || v === 'max') ? v : EMPH_DEFAULT;
+  }
+
+  function loadEmph() {
+    try {
+      const raw = window.localStorage.getItem(EMPH_KEY);
+      return (raw === null) ? EMPH_DEFAULT : normEmph(raw);
+    } catch (e) { return EMPH_DEFAULT; }   // file://에서 저장소가 막혀도 동작해야 한다
+  }
+
+  function saveEmph(v) {
+    try { window.localStorage.setItem(EMPH_KEY, String(v)); } catch (e) { /* 무시 */ }
+  }
+
+  // 재계산이 없으므로 busy() 오버레이를 띄우지 않는다(즉시 끝난다).
+  function applyEmph(v, persist) {
+    const a = api();
+    ui.screenLineEmph = normEmph(v);
+    if (a) a.options.screenLineEmph = ui.screenLineEmph;
+    syncButtons();
+    if (persist) saveEmph(ui.screenLineEmph);
+  }
+
   // 그래프 캡처는 화면에 없으므로 작은 미리보기를 그려 배율 변화를 바로 보여준다.
   function refreshPlotPreview() {
     const a = api();
@@ -163,6 +192,8 @@
       b.classList.toggle("active", b.dataset.cam === ui.camera));
     document.querySelectorAll("#capPresetButtons button").forEach((b) =>
       b.classList.toggle("active", b.dataset.p === ui.capPreset));
+    document.querySelectorAll("#screenEmphButtons button").forEach((b) =>
+      b.classList.toggle("active", b.dataset.emph === ui.screenLineEmph));
   }
 
   // ------------------------------------------------- 구도 · 카메라 · 파라미터
@@ -241,6 +272,7 @@
     a.options.preset = ui.capPreset;
     a.options.fontScale = ui.fontScale;
     a.options.lang = ui.lang;
+    a.options.screenLineEmph = ui.screenLineEmph;
   }
 
   // ------------------------------------------------------------------ 저장
@@ -324,6 +356,9 @@
     applyLang(this.checked ? 'en' : 'ko', true);
   });
 
+  document.querySelectorAll("#screenEmphButtons button").forEach((b) =>
+    b.addEventListener("click", () => applyEmph(b.dataset.emph, true)));
+
   $("capIncBtn").addEventListener("click", () => captureOne('inc'));
   $("capScBtn").addEventListener("click", () => captureOne('sc'));
   $("capTotalBtn").addEventListener("click", () => captureOne('total'));
@@ -353,6 +388,7 @@
     $("capLam").value = String(ui.lam_cm); $("capLamVal").textContent = ui.lam_cm + " cm";
     applyFontScale(loadFontScale(), false);   // 지난번 배율 복원(없으면 기본 1.5)
     applyLang(loadLang(), false);             // 지난번 라벨 언어 복원(없으면 기본 ko)
+    applyEmph(loadEmph(), false);             // 지난번 스크린선 강조 복원(없으면 기본 normal)
     booted = true;
     await applyCamera(ui.camera);       // 기본 1:1 관찰 모드
     applyOptions();
@@ -373,6 +409,7 @@
     applyOptions: applyOptions,
     applyFontScale: applyFontScale,
     applyLang: applyLang,
+    applyEmph: applyEmph,
     refreshPlotPreview: refreshPlotPreview,
     refreshStatus: refreshStatus,
     captureOne: captureOne,

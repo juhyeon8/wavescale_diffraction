@@ -321,3 +321,89 @@ diff_total_…_w1200_sq.png      필드 캡처는 lang과 무관 — 접미사 �
 | ×3.0 | en | 27 | 31 | 61.2 % | false |
 
 차이는 어느 배율에서도 1 %p 안쪽이다(×1.5에서 `box.l` 49 → 47 px).
+
+## 12. 스크린 위치선 강조 (§37)
+
+### 12.1 왜 굵기가 아니라 색을 먼저 손댔나
+
+논문 그림(3×2 패널)에 붙이면 스크린 위치선이 필드 위에서 묻힌다. 원인은 굵기가 아니라
+**색상 충돌**이다 — 기존 선 `#c0392b`(빨강)를 필드의 **빨간 마루 위**에 그리니 굵게만
+해서는 떨어져 보이지 않고, 인쇄 축소를 거치면 더 사라진다.
+
+그래서 강조 단계에는 **흰색 헤일로**(선보다 굵은 흰 선을 아래에 먼저 깔기)를 넣었다.
+배경이 빨강이든 파랑이든 흰 테두리가 선을 배경에서 떼어놓는다. 헤일로는 본선과 **같은
+파선 패턴**으로 깔아 파선의 틈은 비워 둔다(틈이 흰 실선으로 메워지지 않는다).
+
+### 12.2 프리셋 테이블 — `SCREEN_LINE_PRESETS`
+
+`script.js`의 §33.3 순수 헬퍼 구역, `capturePixelSize` 바로 위 한 곳에서만 정한다.
+값은 모두 `s = cw / 1000` 배율을 곱하기 **전** 기준이다.
+
+| 단계 | UI 이름 | color | width | dash | halo |
+|---|---|---|---|---|---|
+| `normal` (기본) | 기본 | `#c0392b` | 1.2 | `[5, 4]` | 0 |
+| `strong` | 진하게 | `#b02a1a` | 2.2 | `[7, 5]` | 2.0 |
+| `max` | 아주 진하게 | `#8e1b10` | 3.2 | `null`(실선) | 2.6 |
+
+`screenLinePreset(key)`가 테이블을 읽는 유일한 통로이고, **모르는 값은 예외 없이 조용히
+`normal`**로 떨어진다(`capture.screenLineEmph = 'zz'`여도 기본 그림이 나온다).
+`normal`은 `halo: 0`이라 헤일로 분기를 건너뛰고 color·width·dash가 현행과 같아,
+캡처 dataURL이 변경 전과 **문자열 완전 동일**하다.
+
+### 12.3 무엇이 안 바뀌나
+
+- **필드 캡처(`renderFieldCapture`)의 스크린선에만** 적용된다. 라이브 화면의
+  `drawIntensityPlot` · `drawOverlay` · `drawOverlay1to1`(“스크린” 점선과 글자)은
+  손대지 않았다 — 단계를 바꿔도 라이브 캔버스 dataURL이 완전 동일하다.
+- 같은 캡처 안의 다른 오버레이(`centerLine`, `halfHLines`, 장애물 원, `frame`)는
+  현재 코드 그대로다.
+- `index.html` · `style.css`는 0줄 변경. 물리 엔진 함수 7개(`besselJ0` · `besselY0` ·
+  `hankel0` · `solveComplex` · `evalFields` · `screenIntensity` · `recompute`)도
+  SHA-256 동일.
+- 단계 변경은 `recompute()`를 부르지 않는다. `state` · `view` · `solver` · `layout`을
+  전혀 건드리지 않아 §3.3의 읽기 전용 규약이 유지된다(측정 0.1 ms).
+- **"스크린 위치선" 체크가 꺼져 있으면 단계와 무관하게 선이 아예 안 그려진다** —
+  세 단계의 dataURL이 서로 완전히 같다.
+
+### 12.4 파일명은 바꾸지 않는다
+
+강조 단계는 물리 조건이 아니라 표시 스타일이므로 `captureFileName`을 손대지 않았다
+(§34의 `_en`과 달리 **같은 데이터의 같은 그림**이다). 추적은 `captureMeta.screenLineEmph`
+한 필드로만 한다.
+
+### 12.5 조작과 저장
+
+`capture.html`의 "스크린 위치선" 세그먼트 버튼(`#screenEmphButtons`)이
+`capture.screenLineEmph`를 바꾸고, 값은 `localStorage`의 `capture.screenLineEmph`
+키에 저장된다(`file://`에서 저장소가 막혀도 부팅되도록 `lang`과 같은 형태로 try/catch).
+재계산이 없으므로 `busy()` 오버레이는 띄우지 않는다.
+
+미리보기 이미지(`#plotPreview`)는 **그래프 캡처**라서 이 옵션의 영향을 받지 않는다 —
+효과는 ①②③ 저장 버튼으로 확인해야 하고, 패널의 안내 문구가 이를 밝힌다.
+
+### 12.6 가시성 실측 (2026-08-29)
+
+H=150 mm · L=100 mm · λ=12 cm · 위상 0° · 1:1 관찰 · 정사각 · 프리셋 s(1200 px).
+`screenLine=false` 캡처와의 **RGB 절대차 합**(스크린선 x=784 px의 ±20 px 띠 안).
+
+| 패널 | normal | strong | max | strong/normal | max/normal |
+|---|---|---|---|---|---|
+| inc | 317,482 | 671,634 | 2,495,796 | ×2.12 | ×7.86 |
+| sc | 367,070 | 833,656 | 2,558,556 | ×2.27 | ×6.97 |
+| total | 402,617 | 856,123 | 2,605,484 | ×2.13 | ×6.47 |
+
+세 패널 모두 단조 증가하고 기준(strong ≥ ×2.0, max ≥ ×3.0)을 넘는다. `max`가 ×6~8로
+크게 뛰는 것은 파선이 **실선**으로 바뀌면서 잉크 길이가 약 2배가 되기 때문이다.
+
+선 + 헤일로의 가로 footprint는 `max`에서 **8 px**(W=1200의 0.67 %)로, 화면 폭의 0.7 %
+상한 안이다. `(3.2 + 2.6) × 1.2 = 6.96 px`에 안티에일리어싱 양쪽 끝이 더해진 값이다.
+
+비교용 PNG 15장(`inc`/`sc`/`total` × 3단계, λ=4·20 cm의 `strong` 3장씩)은
+`captures-sample/screenline/`에 있고, 같은 폴더의 `preview.html`이 스크린선 둘레만
+잘라 나란히 보여준다.
+
+### 12.7 검증
+
+`tests/screenline-baseline.js`(변경 전 dataURL 기준선 저장) → `tests/screenline-check.js`
+(E1~E13). 기존 스위트 `capture-acceptance.js` · `dom-contract.js` ·
+`file-protocol-check.js`도 전부 통과한다(E14).

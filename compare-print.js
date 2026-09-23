@@ -13,31 +13,83 @@
 
   // §36 캔버스 라벨 언어 — 화면과 PNG에 동시에 적용된다(패널 DOM은 항상 한국어).
   // 하이픈은 두 범례 모두 ASCII 하이픈-마이너스(U+002D)로 통일한다.
+  // §38 새물리 투고규정 제7조: 양의 기호는 사체, 단위 기호와 첨자는 직립.
+  // 캔버스는 문자열 하나에 글꼴 하나만 쓰므로 축 제목은 조각 배열로 정의하고
+  // fillParts로 이어 그린다. { t: 글자, i: true면 이탤릭 } — i는 기호 본체에만.
+  // ₀은 숫자, ₛ는 shadow(그림자)의 약자이므로 둘 다 직립이다. 범례는 전부 직립.
+  const AXIS_PARTS = {
+    ko: {
+      mainX: [{ t: "스크린 위치 " }, { t: "y", i: true }, { t: " [mm]" }],
+      mainY: [{ t: "I", i: true }, { t: " / " }, { t: "I", i: true }, { t: "₀(입사)" }],
+      sweepX: [{ t: "파장 " }, { t: "λ", i: true }, { t: " [cm] (로그축)" }],
+      sweepY: [{ t: "Ī", i: true }, { t: "ₛ (그림자 영역의 평균 상대 세기)" }],
+    },
+    en: {
+      mainX: [{ t: "Position on screen " }, { t: "y", i: true }, { t: " [mm]" }],
+      mainY: [{ t: "I", i: true }, { t: "(" }, { t: "y", i: true },
+              { t: ") / " }, { t: "I", i: true }, { t: "₀" }],
+      sweepX: [{ t: "Wavelength " }, { t: "λ", i: true }, { t: " [cm] (log scale)" }],
+      sweepY: [{ t: "Ī", i: true }, { t: "ₛ (shadow mean intensity)" }],
+    },
+  };
+
+  function partsText(parts) { return parts.map(function (p) { return p.t; }).join(""); }
+
+  // 축 제목 평문은 조각에서 뽑는다 — 문자열과 조각이 어긋날 일이 없도록 단일 출처로.
   const PLOT_LABELS = {
     ko: {
-      mainX: "스크린 위치 y [mm]",
-      mainY: "I / I₀(입사)",
+      mainX: partsText(AXIS_PARTS.ko.mainX),
+      mainY: partsText(AXIS_PARTS.ko.mainY),
       mom: LABEL_MOM,
       huy: LABEL_HUY,
-      sweepX: "파장 λ [cm] (로그축)",
-      sweepY: "Īₛ (그림자 영역의 평균 상대 세기)",
+      sweepX: partsText(AXIS_PARTS.ko.sweepX),
+      sweepY: partsText(AXIS_PARTS.ko.sweepY),
       momSolid: LABEL_MOM + " (실선)",
       huyDashed: LABEL_HUY + " (점선)",
     },
     en: {
-      mainX: "Position on screen y [mm]",
-      mainY: "I(y) / I₀",
+      mainX: partsText(AXIS_PARTS.en.mainX),
+      mainY: partsText(AXIS_PARTS.en.mainY),
       mom: "Incident-scattered superposition",
       huy: "Huygens-Fresnel",
-      sweepX: "Wavelength λ [cm] (log scale)",
-      sweepY: "Īₛ (shadow mean intensity)",
+      sweepX: partsText(AXIS_PARTS.en.sweepX),
+      sweepY: partsText(AXIS_PARTS.en.sweepY),
       momSolid: "Incident-scattered superposition (solid)",
       huyDashed: "Huygens-Fresnel (dashed)",
     },
   };
 
+  // 기호 조각 전용 글꼴 — 이 코드의 sans-serif는 PC 기본 글꼴(예: 맑은 고딕)로 풀리고
+  // 거기엔 이탤릭 페이스가 없어 브라우저가 기울여 흉내 낸다. 진짜 이탤릭이 있는 Arial을
+  // 기호에만 지정한다. 직립 조각은 기존 그대로 sans-serif.
+  const SYM_ITALIC_FAMILY = "Arial, sans-serif";
+
+  // 조각 배열을 가운데 정렬로 이어 그린다. cx는 중심 x, y는 기준선.
+  // fillStyle·textBaseline은 호출 쪽에서 맞춰 둔다(textAlign은 이 함수가 관리·복원).
+  // 회전 변환(rotate) 안에서도 그대로 쓴다. 반환값은 조각 전체 너비.
+  function fillParts(ctx, parts, cx, y, fontPx) {
+    const roman = fontPx + "px sans-serif";
+    const italic = "italic " + fontPx + "px " + SYM_ITALIC_FAMILY;
+    let total = 0, i;
+    for (i = 0; i < parts.length; i++) {
+      ctx.font = parts[i].i ? italic : roman;
+      total += ctx.measureText(parts[i].t).width;
+    }
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = "left";
+    let x = cx - total / 2;
+    for (i = 0; i < parts.length; i++) {
+      ctx.font = parts[i].i ? italic : roman;
+      ctx.fillText(parts[i].t, x, y);
+      x += ctx.measureText(parts[i].t).width;
+    }
+    ctx.textAlign = prevAlign;
+    return total;
+  }
+
   function normLang(v) { return (v === 'en') ? 'en' : 'ko'; }   // 그 외 값은 조용히 ko
   function plotLabels() { return PLOT_LABELS[normLang(state.lang)]; }
+  function axisParts() { return AXIS_PARTS[normLang(state.lang)]; }
 
   // =====================================================================
   // 1. 상태
@@ -399,10 +451,11 @@
     ctx.setLineDash([]);
 
     // 축 라벨
-    ctx.fillStyle = "#5a5a62"; ctx.font = `${AXIS_TITLE_PX * ts}px sans-serif`; ctx.textAlign = "center";
-    ctx.fillText(LB.mainX, m.left + plotW / 2, h - 8 * ts);
+    const AP = axisParts();
+    ctx.fillStyle = "#5a5a62"; ctx.textAlign = "center";
+    fillParts(ctx, AP.mainX, m.left + plotW / 2, h - 8 * ts, AXIS_TITLE_PX * ts);
     ctx.save(); ctx.translate(24 * ts, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.fillText(LB.mainY, 0, 0); ctx.restore();
+    fillParts(ctx, AP.mainY, 0, 0, AXIS_TITLE_PX * ts); ctx.restore();
 
     ctx.font = `${TICK_PX * ts}px sans-serif`;
     ctx.textAlign = "left"; ctx.fillText((-halfRange).toFixed(0), m.left, h - 32 * ts);
@@ -644,8 +697,9 @@
       }
     });
 
-    ctx.fillStyle = "#5a5a62"; ctx.font = `${SW_AXIS_TITLE_PX * ts}px sans-serif`; ctx.textAlign = "center";
-    ctx.fillText(LB.sweepX, m.left + plotW / 2, h - 8 * ts);
+    const AP = axisParts();
+    ctx.fillStyle = "#5a5a62"; ctx.textAlign = "center";
+    fillParts(ctx, AP.sweepX, m.left + plotW / 2, h - 8 * ts, SW_AXIS_TITLE_PX * ts);
     // x축 눈금 라벨 — 로그축이므로 1,2,5,10,20,30에 배치(§34.4)
     ctx.font = `${SW_TICK_PX * ts}px sans-serif`;
     [1, 2, 5, 10, 20, 30].forEach((lam) => {
@@ -654,8 +708,7 @@
       ctx.fillText(String(lam), x, h - 32 * ts);
     });
     ctx.save(); ctx.translate(24 * ts, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.font = `${SW_AXIS_TITLE_PX * ts}px sans-serif`;
-    ctx.textAlign = "center"; ctx.fillText(LB.sweepY, 0, 0); ctx.restore();
+    fillParts(ctx, AP.sweepY, 0, 0, SW_AXIS_TITLE_PX * ts); ctx.restore();
 
     // 범례 — 선 종류로 두 모형을 구분(drawMainPlot과 동일 형식)
     ctx.font = `${SW_LEGEND_PX * ts}px sans-serif`; ctx.textAlign = "left";
@@ -733,6 +786,16 @@
       console.assert(PLOT_LABELS.ko.mom === LABEL_MOM, "ko 범례는 LABEL_MOM 단일 출처");
       console.assert(!/ - /.test(Object.values(PLOT_LABELS.en).join("|")),
         "영문 라벨 하이픈 양옆에 공백 없음");
+      // §38 조각 표기 — 평문은 조각에서 뽑히고, 이탤릭은 기호 본체에만 붙는다.
+      ['ko', 'en'].forEach(function (k) {
+        ['mainX', 'mainY', 'sweepX', 'sweepY'].forEach(function (key) {
+          console.assert(partsText(AXIS_PARTS[k][key]) === PLOT_LABELS[k][key],
+            k + "." + key + " 평문이 조각과 일치");
+          AXIS_PARTS[k][key].filter(function (p) { return p.i; }).forEach(function (p) {
+            console.assert(/^[yIĪλ]$/.test(p.t), "이탤릭 조각은 기호 본체 한 글자: " + p.t);
+          });
+        });
+      });
     }
     console.log("[검증] Y0(1)=", besselY0(1).toFixed(6), "(기대 0.088257)");
     {

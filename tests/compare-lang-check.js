@@ -56,7 +56,8 @@ function readLabelTable() {
   const j = src.indexOf("function normLang");
   if (i < 0 || j < 0) throw new Error("PLOT_LABELS 블록을 찾지 못함");
   const block = src.slice(i, j);
-  return new Function(block + "\nreturn { PLOT_LABELS: PLOT_LABELS, LABEL_MOM: LABEL_MOM, LABEL_HUY: LABEL_HUY };")();
+  return new Function(block + "\nreturn { PLOT_LABELS: PLOT_LABELS, LABEL_MOM: LABEL_MOM,"
+    + " LABEL_HUY: LABEL_HUY, AXIS_PARTS: AXIS_PARTS, SYM_ITALIC_FAMILY: SYM_ITALIC_FAMILY };")();
 }
 
 async function grabExport(page, buttonId) {
@@ -285,10 +286,16 @@ function panelTexts(page) {
     c10ok);
 
   // ---------------- C7 텍스트 넘침 (두 차트 × lang × fontScale × 해상도)
-  const c7 = await page.evaluate((tbl) => {
+  const c7 = await page.evaluate((arg) => {
+    const tbl = arg.labels, parts = arg.parts, symFam = arg.symFam;
     const cv = document.createElement("canvas");
     const c = cv.getContext("2d");
     const out = [];
+    // §38 축 제목은 조각마다 글꼴이 달라지므로 조각별로 재서 더한다(fillParts와 같은 규칙).
+    const partsW = (ps, fontPx) => ps.reduce((sum, p) => {
+      c.font = (p.i ? "italic " + fontPx + "px " + symFam : fontPx + "px sans-serif");
+      return sum + c.measureText(p.t).width;
+    }, 0);
     // drawMainPlot / drawSweepChart와 동일한 여백·폰트 규칙
     const CHART = {
       main: { axis: 20, legend: 18 },
@@ -302,14 +309,11 @@ function panelTexts(page) {
           const ts = scale * fs;
           const m = { left: 76 * ts, right: 24 * scale, top: 24 * scale, bottom: 58 * ts };
           const plotW = w - m.left - m.right, plotH = h - m.top - m.bottom;
-          const L = tbl[lang];
+          const L = tbl[lang], P = parts[lang];
           ["main", "sweep"].forEach((chart) => {
             const f = CHART[chart];
-            c.font = (f.axis * ts) + "px sans-serif";
-            const yTitle = (chart === "main") ? L.mainY : L.sweepY;
-            const xTitle = (chart === "main") ? L.mainX : L.sweepX;
-            const yW = c.measureText(yTitle).width;
-            const xW = c.measureText(xTitle).width;
+            const yW = partsW((chart === "main") ? P.mainY : P.sweepY, f.axis * ts);
+            const xW = partsW((chart === "main") ? P.mainX : P.sweepX, f.axis * ts);
             c.font = (f.legend * ts) + "px sans-serif";
             const legTexts = (chart === "main") ? [L.mom, L.huy] : [L.momSolid, L.huyDashed];
             const legW = Math.max.apply(null, legTexts.map((t) => c.measureText(t).width));
@@ -330,7 +334,7 @@ function panelTexts(page) {
       });
     });
     return out;
-  }, T.PLOT_LABELS);
+  }, { labels: T.PLOT_LABELS, parts: T.AXIS_PARTS, symFam: T.SYM_ITALIC_FAMILY });
 
   console.log("\n  C7 텍스트 실측 (px) — y제목은 회전 후 캔버스 가장자리까지의 여유가 잘림 판정 기준");
   console.log("  차트    lang  배율  해상도      y제목폭  캔버스여유  (plotH대비)  범례우끝/한계     x제목폭/한계");

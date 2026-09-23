@@ -181,12 +181,16 @@ async function waitBoot(page) {
     const pad = Math.round(6 * (cw / 1000) * a.options.fontScale);
     const cv = document.createElement("canvas");
     const c = cv.getContext("2d");
-    c.font = m.axisPx + "px sans-serif";
     const L = a.labels(m.lang);
+    // §38 조각마다 글꼴이 달라지므로 폭은 조각별로 재서 더한다(fillParts와 같은 규칙).
+    const partsW = (parts) => parts.reduce((sum, p) => {
+      c.font = p.i ? a.symItalicFont(m.axisPx) : m.axisPx + "px sans-serif";
+      return sum + c.measureText(p.t).width;
+    }, 0);
     return {
       box: m.box, cw: cw, pad: pad, avail: cw - 2 * pad,
-      xNameW: c.measureText(L.xName + " [" + m.unit + "]").width,
-      yNameW: c.measureText(L.yName).width,
+      xNameW: partsW(L.xParts.concat([{ t: " [" + m.unit + "]" }])),
+      yNameW: partsW(L.yParts),
     };
   });
   const fracDiff = Math.abs(metaEn.plotAreaFrac - metaKo.plotAreaFrac);

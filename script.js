@@ -1051,13 +1051,66 @@
 
   // §33.3+ 그래프 축 이름 — 언어별 문자열은 여기 한 곳에서만 정한다.
   // 라이브 화면(drawIntensityPlot 등)의 한글 라벨과는 무관하다.
-  const PLOT_LABELS = {
-    ko: { xName: "스크린 위의 위치 y", yName: "스크린 세기 I(y) / I₀" },
-    en: { xName: "Position on screen y", yName: "I(y) / I₀" },
+  // §38 새물리 투고규정 제7조: 양의 기호는 사체, 단위 기호와 숫자 첨자는 직립.
+  // 캔버스는 문자열 하나에 글꼴 하나만 쓰므로 조각 배열로 정의하고 fillParts로 이어 그린다.
+  // { t: 글자, i: true면 이탤릭 } — i는 물리량 기호 본체에만 붙인다(₀은 숫자라 직립).
+  const PLOT_LABEL_PARTS = {
+    ko: {
+      x: [{ t: "스크린 위의 위치 " }, { t: "y", i: true }],
+      y: [{ t: "스크린 세기 " }, { t: "I", i: true }, { t: "(" }, { t: "y", i: true },
+          { t: ") / " }, { t: "I", i: true }, { t: "₀" }],
+    },
+    en: {
+      x: [{ t: "Position on screen " }, { t: "y", i: true }],
+      y: [{ t: "I", i: true }, { t: "(" }, { t: "y", i: true },
+          { t: ") / " }, { t: "I", i: true }, { t: "₀" }],
+    },
   };
 
+  function partsText(parts) { return parts.map(function (p) { return p.t; }).join(""); }
+
+  // 평문 이름은 조각에서 뽑는다 — 문자열과 조각이 어긋날 일이 없도록 단일 출처로 둔다.
+  const PLOT_LABELS = {
+    ko: { xName: partsText(PLOT_LABEL_PARTS.ko.x), yName: partsText(PLOT_LABEL_PARTS.ko.y) },
+    en: { xName: partsText(PLOT_LABEL_PARTS.en.x), yName: partsText(PLOT_LABEL_PARTS.en.y) },
+  };
+
+  // 기호 조각 전용 글꼴 — 이 코드의 sans-serif는 PC 기본 글꼴(예: 맑은 고딕)로 풀리고
+  // 거기엔 이탤릭 페이스가 없어 브라우저가 기울여 흉내 낸다. 진짜 이탤릭이 있는 Arial을
+  // 기호에만 지정한다. 직립 조각은 기존 그대로 sans-serif.
+  const SYM_ITALIC_FAMILY = "Arial, sans-serif";
+
+  // 조각 배열을 가운데 정렬로 이어 그린다. cx는 중심 x, y는 기준선.
+  // fillStyle·textBaseline은 호출 쪽에서 맞춰 둔다(textAlign은 이 함수가 관리·복원).
+  // 회전 변환(rotate) 안에서도 그대로 쓴다. 반환값은 조각 전체 너비.
+  function fillParts(c, parts, cx, y, fontPx) {
+    const roman = fontPx + "px sans-serif";
+    const italic = "italic " + fontPx + "px " + SYM_ITALIC_FAMILY;
+    let total = 0, i;
+    for (i = 0; i < parts.length; i++) {
+      c.font = parts[i].i ? italic : roman;
+      total += c.measureText(parts[i].t).width;
+    }
+    const prevAlign = c.textAlign;
+    c.textAlign = "left";
+    let x = cx - total / 2;
+    for (i = 0; i < parts.length; i++) {
+      c.font = parts[i].i ? italic : roman;
+      c.fillText(parts[i].t, x, y);
+      x += c.measureText(parts[i].t).width;
+    }
+    c.textAlign = prevAlign;
+    return total;
+  }
+
   function captureLang(v) { return (v === 'en') ? 'en' : 'ko'; }   // 그 외 값은 조용히 ko
-  function plotLabels(lang) { return PLOT_LABELS[captureLang(lang)]; }
+  function plotLabels(lang) {
+    const k = captureLang(lang);
+    return {
+      xName: PLOT_LABELS[k].xName, yName: PLOT_LABELS[k].yName,
+      xParts: PLOT_LABEL_PARTS[k].x, yParts: PLOT_LABEL_PARTS[k].y,
+    };
+  }
 
   // 파일명에 물리 파라미터를 박는다(D9). viewPreset(구도)은 선택 접미사 — sq|wide|sqtall.
   // lang은 맨 뒤 선택 인자 — plot 캡처가 영문일 때만 "_en"이 더 붙는다(필드 캡처는 글자가
@@ -1281,6 +1334,9 @@
       yTicks.push({ v: t, s: formatTick(t, yStep) });
 
     const LB = plotLabels(capture.lang);
+    // 단위는 직립 조각으로 뒤에 붙인다. 평문 xName/yName은 여백 역산(textH)과 meta용.
+    const xParts = LB.xParts.concat([{ t: " [" + capture.unit + "]" }]);
+    const yParts = LB.yParts;
     const xName = LB.xName + " [" + capture.unit + "]";
     const yName = LB.yName;
 
@@ -1372,14 +1428,14 @@
     c.restore();
 
     // 7. 축 이름 (제목·범례·파라미터 캡션은 넣지 않는다)
-    c.font = axisPx + "px sans-serif"; c.fillStyle = "#333";
-    c.textAlign = "center"; c.textBaseline = "bottom";
-    c.fillText(xName, (box.l + box.r) / 2, ch - pad);
+    //    기호만 사체로 그려야 하므로 조각 배열을 fillParts로 이어 그린다(§38).
+    c.fillStyle = "#333"; c.textBaseline = "bottom";
+    fillParts(c, xParts, (box.l + box.r) / 2, ch - pad, axisPx);
     c.save();
     c.translate(pad + yNameH / 2, (box.t + box.b) / 2);
     c.rotate(-Math.PI / 2);
-    c.textAlign = "center"; c.textBaseline = "middle";
-    c.fillText(yName, 0, 0);
+    c.textBaseline = "middle";
+    fillParts(c, yParts, 0, 0, axisPx);
     c.restore();
 
     const points = [];
@@ -1517,7 +1573,11 @@
     presets: CAPTURE_PRESETS,
     options: capture,
     fileName: captureFileName,
-    labels: function (lang) { const L = plotLabels(lang); return { xName: L.xName, yName: L.yName }; },
+    labels: function (lang) {
+      const L = plotLabels(lang);
+      return { xName: L.xName, yName: L.yName, xParts: L.xParts, yParts: L.yParts };
+    },
+    symItalicFont: function (fontPx) { return "italic " + fontPx + "px " + SYM_ITALIC_FAMILY; },
     get meta() { return captureMeta; },
     layout: function () {
       return {
@@ -1671,6 +1731,15 @@
         && String(SCREEN_LINE_PRESETS.normal.dash) === "5,4", "normal은 현행 값 고정");
       console.assert(!/[\uAC00-\uD7A3\u3130-\u318F\u1100-\u11FF]/.test(
         plotLabels('en').xName + plotLabels('en').yName), "영문 라벨에 한글 없음");
+      // §38 조각 표기 — 평문은 조각에서 뽑히고, 이탤릭은 기호 본체에만 붙는다.
+      ['ko', 'en'].forEach(function (k) {
+        const L = plotLabels(k);
+        console.assert(partsText(L.xParts) === L.xName && partsText(L.yParts) === L.yName,
+          k + " 평문 축 이름이 조각과 일치");
+        L.xParts.concat(L.yParts).filter(function (p) { return p.i; }).forEach(function (p) {
+          console.assert(/^[yIĪλ]$/.test(p.t), "이탤릭 조각은 기호 본체 한 글자: " + p.t);
+        });
+      });
       // 대칭 배열 → I(y) 대칭성 (가로축이 위치임을 보장하는 물리 단언)
       const pr = sampleScreenProfileCap(state.L_mm / 1000, base.Yw, 40);
       let maxAsym = 0;

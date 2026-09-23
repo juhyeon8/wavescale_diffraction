@@ -1281,7 +1281,7 @@
       yTicks.push({ v: t, s: formatTick(t, yStep) });
 
     const LB = plotLabels(capture.lang);
-    const xName = LB.xName + " (" + capture.unit + ")";
+    const xName = LB.xName + " [" + capture.unit + "]";
     const yName = LB.yName;
 
     c.font = tickPx + "px sans-serif";

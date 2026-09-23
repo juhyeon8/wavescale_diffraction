@@ -185,7 +185,7 @@ async function waitBoot(page) {
     const L = a.labels(m.lang);
     return {
       box: m.box, cw: cw, pad: pad, avail: cw - 2 * pad,
-      xNameW: c.measureText(L.xName + " (" + m.unit + ")").width,
+      xNameW: c.measureText(L.xName + " [" + m.unit + "]").width,
       yNameW: c.measureText(L.yName).width,
     };
   });
@@ -235,18 +235,18 @@ async function waitBoot(page) {
     a.options.lang = "en"; a.options.unit = "mm";
     a.dataURL("plot", "xs");
     const m = a.meta;
-    const built = a.labels(m.lang).xName + " (" + a.options.unit + ")";
+    const built = a.labels(m.lang).xName + " [" + a.options.unit + "]";
     a.options.unit = "cm";               // 원복
     a.dataURL("plot", "xs");
     const m2 = a.meta;
     return { built: built, unitMm: m.unit, unitCm: m2.unit,
-      builtCm: a.labels("en").xName + " (" + a.options.unit + ")" };
+      builtCm: a.labels("en").xName + " [" + a.options.unit + "]" };
   });
   rec("L10", "unit='mm'에서 en x축 조립",
     "\"" + l10.built + "\" (meta.unit='" + l10.unitMm + "') · 원복 후 \""
     + l10.builtCm + "\" (meta.unit='" + l10.unitCm + "')",
-    l10.built === "Position on screen y (mm)" && l10.unitMm === "mm"
-    && l10.builtCm === "Position on screen y (cm)" && l10.unitCm === "cm");
+    l10.built === "Position on screen y [mm]" && l10.unitMm === "mm"
+    && l10.builtCm === "Position on screen y [cm]" && l10.unitCm === "cm");
 
   // ---------------- L11 파일명
   const l11 = await page.evaluate(() => {

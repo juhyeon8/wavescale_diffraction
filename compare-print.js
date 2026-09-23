@@ -15,21 +15,21 @@
   // 하이픈은 두 범례 모두 ASCII 하이픈-마이너스(U+002D)로 통일한다.
   const PLOT_LABELS = {
     ko: {
-      mainX: "스크린 위치 y (mm)",
+      mainX: "스크린 위치 y [mm]",
       mainY: "I / I₀(입사)",
       mom: LABEL_MOM,
       huy: LABEL_HUY,
-      sweepX: "파장 λ (cm, 로그축)",
+      sweepX: "파장 λ [cm] (로그축)",
       sweepY: "Īₛ (그림자 영역의 평균 상대 세기)",
       momSolid: LABEL_MOM + " (실선)",
       huyDashed: LABEL_HUY + " (점선)",
     },
     en: {
-      mainX: "Position on screen y (mm)",
+      mainX: "Position on screen y [mm]",
       mainY: "I(y) / I₀",
       mom: "Incident-scattered superposition",
       huy: "Huygens-Fresnel",
-      sweepX: "Wavelength λ (cm, log scale)",
+      sweepX: "Wavelength λ [cm] (log scale)",
       sweepY: "Īₛ (shadow mean intensity)",
       momSolid: "Incident-scattered superposition (solid)",
       huyDashed: "Huygens-Fresnel (dashed)",

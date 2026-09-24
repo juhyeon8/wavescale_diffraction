@@ -19,13 +19,13 @@
   // ₀은 숫자, ₛ는 shadow(그림자)의 약자이므로 둘 다 직립이다. 범례는 전부 직립.
   const AXIS_PARTS = {
     ko: {
-      mainX: [{ t: "스크린 위치 " }, { t: "y", i: true }, { t: " [mm]" }],
+      mainX: [{ t: "스크린 위치 " }, { t: "y", i: true }, { t: " [cm]" }],
       mainY: [{ t: "I", i: true }, { t: " / " }, { t: "I", i: true }, { t: "₀(입사)" }],
       sweepX: [{ t: "파장 " }, { t: "λ", i: true }, { t: " [cm] (로그축)" }],
       sweepY: [{ t: "Ī", i: true }, { t: "ₛ (그림자 영역의 평균 상대 세기)" }],
     },
     en: {
-      mainX: [{ t: "Position on screen " }, { t: "y", i: true }, { t: " [mm]" }],
+      mainX: [{ t: "Position on screen " }, { t: "y", i: true }, { t: " [cm]" }],
       mainY: [{ t: "I", i: true }, { t: "(" }, { t: "y", i: true },
               { t: ") / " }, { t: "I", i: true }, { t: "₀" }],
       sweepX: [{ t: "Wavelength " }, { t: "λ", i: true }, { t: " [cm] (log scale)" }],
@@ -457,12 +457,18 @@
     ctx.save(); ctx.translate(24 * ts, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
     fillParts(ctx, AP.mainY, 0, 0, AXIS_TITLE_PX * ts); ctx.restore();
 
+    // 가로축 눈금은 cm로 표시(계산·좌표는 mm 그대로) — 정수면 정수, 아니면 소수 한 자리
+    const cmTick = (y_mm) => {
+      const c = Math.round(y_mm) / 10;
+      return Number.isInteger(c) ? c.toFixed(0) : c.toFixed(1);
+    };
     ctx.font = `${TICK_PX * ts}px sans-serif`;
-    ctx.textAlign = "left"; ctx.fillText((-halfRange).toFixed(0), m.left, h - 32 * ts);
-    ctx.textAlign = "right"; ctx.fillText(halfRange.toFixed(0), m.left + plotW, h - 32 * ts);
+    ctx.textAlign = "left"; ctx.fillText(cmTick(-halfRange), m.left, h - 32 * ts);
+    ctx.textAlign = "right"; ctx.fillText(cmTick(halfRange), m.left + plotW, h - 32 * ts);
     ctx.textAlign = "center";
-    ctx.fillText((-H_mm / 2).toFixed(0), shadeX0, h - 32 * ts);
-    ctx.fillText((H_mm / 2).toFixed(0), shadeX1, h - 32 * ts);
+    ctx.fillText(cmTick(-H_mm / 2), shadeX0, h - 32 * ts);
+    ctx.fillText("0", px(0), h - 32 * ts);
+    ctx.fillText(cmTick(H_mm / 2), shadeX1, h - 32 * ts);
     ctx.textAlign = "right";
     for (let v = 0; v <= Imax; v++) {
       ctx.fillText(v.toFixed(0), m.left - 8 * ts, py(v) + 4 * ts);

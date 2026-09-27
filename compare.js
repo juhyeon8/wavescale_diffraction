@@ -665,28 +665,21 @@
         }
         return findCrossings(H, L, lambdas, sM, sH);
       }
+      // 등면적 규칙(a = d/2π) 적용 후에는 도선 막대(MoM)의 S̄가 λ ≥ 2 cm 전 구간에서
+      // 하위헌스-프레넬보다 작다. 예전 a = d/2에서 보이던 교차점은 짧은 파장의
+      // 격자 틈 투과 과대평가로 생긴 것이므로, 이제는 "교차 없음"이 기대값이다.
       [
-        { id: "A", H: 125, L: 1000, lam: 4.19, sbar: 0.370 },
-        { id: "B", H: 100, L: 300,  lam: 4.17, sbar: 0.188 },
-        { id: "C", H: 200, L: 1000, lam: 5.85, sbar: 0.222 },
+        { id: "A", H: 125, L: 1000 },
+        { id: "B", H: 100, L: 300 },
+        { id: "C", H: 200, L: 1000 },
+        { id: "D", H: 125, L: 300 },
       ].forEach(function (c) {
         const r = crossingsOf(c.H, c.L);
-        console.assert(r.length >= 1, `[§34-${c.id}] H=${c.H},L=${c.L}: 교차점이 검출되어야 함`);
-        if (!r.length) return;
-        console.assert(Math.abs(r[0].lam_cm - c.lam) <= 0.05,
-          `[§34-${c.id}] H=${c.H},L=${c.L}: λ*=${r[0].lam_cm.toFixed(3)}cm (기대 ${c.lam}±0.05)`);
-        console.assert(Math.abs(r[0].sbar - c.sbar) <= 0.005,
-          `[§34-${c.id}] H=${c.H},L=${c.L}: S̄*=${r[0].sbar.toFixed(4)} (기대 ${c.sbar}±0.005)`);
-        console.log(`[검증] §34-${c.id} H=${c.H},L=${c.L} → λ*=${r[0].lam_cm.toFixed(4)}cm, ` +
-          `S̄*=${r[0].sbar.toFixed(4)} (근 ${r.length}개)`);
+        console.assert(r.length === 0,
+          `[§34-${c.id}] H=${c.H},L=${c.L}: 교차점이 없어야 함 (실제 ${r.length}개)`);
+        console.log(`[검증] §34-${c.id} H=${c.H},L=${c.L} → ` +
+          (r.length ? r.map((x) => `λ*=${x.lam_cm.toFixed(4)}cm`).join(", ") : "교차 없음"));
       });
-      {
-        const r = crossingsOf(125, 300);
-        console.assert(r.length >= 2,
-          `[§34-D] H=125,L=300: 탐색 구간에서 교차점 2개 이상이어야 함 (실제 ${r.length}개)`);
-        console.log("[검증] §34-D H=125,L=300 → 근 " +
-          r.map((x) => `λ*=${x.lam_cm.toFixed(4)}cm(S̄*=${x.sbar.toFixed(4)})`).join(", "));
-      }
     }, 0);
   }
 

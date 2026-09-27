@@ -532,7 +532,7 @@
 
     const sPx = layout.bandW / (camera.xMax - camera.xMin);
     const dPx = (state.d_mm / 1000) * sPx;
-    const aPx = (solver.aEff_m) * sPx;
+    const aPx = state.mode === 'solid' ? dPx * 0.5 : (solver.aEff_m) * sPx;   // 솔리드: 계산용 a와 별개로 맞닿게 그림
     const rPx = Math.min(dPx * 0.5, Math.max(1.5, aPx));   // 닿으면 dPx의 절반(맞닿음)
     const N = state.N;
 
@@ -632,7 +632,7 @@
 
     const sPx = layout.bandW / (camera1to1.xMax - camera1to1.xMin);
     const dPx = (state.d_mm / 1000) * sPx;
-    const aPx = solver.aEff_m * sPx;
+    const aPx = state.mode === 'solid' ? dPx * 0.5 : solver.aEff_m * sPx;
     const rPx = Math.min(dPx * 0.5, Math.max(1.5, aPx));
     const N = state.N;
 
@@ -714,12 +714,12 @@
   function isTouching(a_mm, d_mm) { return 2 * a_mm >= d_mm; }
   function transmissionWarn(lam_cm, d_mm) { return lam_cm * 10 < 5 * d_mm; }
 
-  // 솔리드 모드: H만으로 N/d/a 자동 산출(도선 맞닿음, d<=1mm 목표) — 순수 함수(§15.1)
+  // 솔리드 모드: H만으로 N/d/a 자동 산출(등면적 규칙, d<=1mm 목표) — 순수 함수(§15.1)
   function computeSolidWireLayout(H_mm) {
     const nNeeded = Math.ceil(H_mm / 1) + 1;      // d <= 1mm(=λ_min/10) 목표
     const N = Math.min(N_MAX, Math.max(2, nNeeded));
     const d_mm = H_mm / (N - 1);
-    const a_mm = d_mm / 2;                         // 맞닿음
+    const a_mm = d_mm / (2 * Math.PI);             // 등면적 규칙: 연속 도체 띠와 등가
     return { N, d_mm, a_mm, approxWarn: d_mm > 1 };
   }
 
@@ -1231,7 +1231,7 @@
     // 색은 세 패널 모두 동일(D5) — ①밴드도 반투명 회색으로 약하게 그리지 않는다.
     const sPx = cw / (cam.xMax - cam.xMin);
     const dPx = (state.d_mm / 1000) * sPx;
-    const aPx = solver.aEff_m * sPx;
+    const aPx = state.mode === 'solid' ? dPx * 0.5 : solver.aEff_m * sPx;
     const rPx = Math.min(dPx * 0.5, Math.max(1.5 * s, aPx));
     for (let n = 0; n < state.N; n++) {
       const p = toPx(0, solver.wiresY[n]);
@@ -1645,6 +1645,8 @@
       const r = computeSolidWireLayout(100);
       console.assert(r.N === 101 && Math.abs(r.d_mm - 1.0) < 1e-9 && !r.approxWarn,
         "computeSolidWireLayout(100): N=101,d=1.0mm,경고 없음");
+      console.assert(Math.abs(r.a_mm - 1.0 / (2 * Math.PI)) < 1e-9,
+        "computeSolidWireLayout(100): 등면적 규칙 a=d/2π");
     }
     {
       const r = computeSolidWireLayout(150);

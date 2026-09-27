@@ -150,7 +150,7 @@
     const d_target_mm = Math.min(1, lam_mm / 20);
     const N = Math.min(400, Math.max(2, Math.ceil(H_mm / d_target_mm) + 1));
     const d_mm = H_mm / (N - 1);
-    const a_mm = d_mm / 2;
+    const a_mm = d_mm / (2 * Math.PI);  // 등면적 규칙: 연속 도체 띠와 등가
     const warn = d_mm > 1.05 * d_target_mm;
     return { N, d_mm, a_mm, d_target_mm, warn };
   }

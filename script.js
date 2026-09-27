@@ -420,33 +420,12 @@
     if (offscreen.width !== gw || offscreen.height !== gh) {
       offscreen.width = gw; offscreen.height = gh;
     }
-    const gxSpan = solver.xMax - solver.xMin;
-
     // 필드값(0=입사/1=산란/2=중첩)을 오프스크린에 그린 뒤, cam 범위로 crop해서
     // destRect(밴드 픽셀 사각형)에 그린다 — 3분할·1:1 공용(§20.5).
+    // 실제 렌더는 §33.1 drawFieldCrop()에 있다 — 라이브·캡처 공용(순수 추출, 로직 동일).
     function renderField(fieldIndex, cam, destX, destY, destW, destH) {
-      const img = offctx.createImageData(gw, gh);
-      const data = img.data;
-      for (let p = 0; p < gw * gh; p++) {
-        let fr, fi;
-        if (fieldIndex === 0) { fr = solver.incRe[p]; fi = solver.incIm[p]; }
-        else if (fieldIndex === 1) { fr = solver.scRe[p]; fi = solver.scIm[p]; }
-        else { fr = solver.incRe[p] + solver.scRe[p]; fi = solver.incIm[p] + solver.scIm[p]; }
-        const val = (fr * cosP + fi * sinP) * A;
-        colorFor(val / VMAX, data, p * 4);
-      }
-      offctx.putImageData(img, 0, 0);
-      let sx = (cam.xMin - solver.xMin) / gxSpan * gw;
-      let sxEnd = (cam.xMax - solver.xMin) / gxSpan * gw;
-      let sy = (solver.Yw - cam.Yw) / (2 * solver.Yw) * gh;
-      let syEnd = (solver.Yw + cam.Yw) / (2 * solver.Yw) * gh;
-      sx = Math.max(0, Math.min(gw, sx));
-      sxEnd = Math.max(0, Math.min(gw, sxEnd));
-      sy = Math.max(0, Math.min(gh, sy));
-      syEnd = Math.max(0, Math.min(gh, syEnd));
-      const sW = Math.max(1, sxEnd - sx), sH = Math.max(1, syEnd - sy);
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(offscreen, sx, sy, sW, sH, destX, destY, destW, destH);
+      drawFieldCrop(ctx, offscreen, offctx, fieldIndex, cam,
+                    destX, destY, destW, destH, cosP, sinP, A);
     }
 
     let plotBy, plotBh;
@@ -553,7 +532,7 @@
 
     const sPx = layout.bandW / (camera.xMax - camera.xMin);
     const dPx = (state.d_mm / 1000) * sPx;
-    const aPx = (solver.aEff_m) * sPx;
+    const aPx = state.mode === 'solid' ? dPx * 0.5 : (solver.aEff_m) * sPx;   // 솔리드: 계산용 a와 별개로 맞닿게 그림
     const rPx = Math.min(dPx * 0.5, Math.max(1.5, aPx));   // 닿으면 dPx의 절반(맞닿음)
     const N = state.N;
 
@@ -653,7 +632,7 @@
 
     const sPx = layout.bandW / (camera1to1.xMax - camera1to1.xMin);
     const dPx = (state.d_mm / 1000) * sPx;
-    const aPx = solver.aEff_m * sPx;
+    const aPx = state.mode === 'solid' ? dPx * 0.5 : solver.aEff_m * sPx;
     const rPx = Math.min(dPx * 0.5, Math.max(1.5, aPx));
     const N = state.N;
 
@@ -735,12 +714,12 @@
   function isTouching(a_mm, d_mm) { return 2 * a_mm >= d_mm; }
   function transmissionWarn(lam_cm, d_mm) { return lam_cm * 10 < 5 * d_mm; }
 
-  // 솔리드 모드: H만으로 N/d/a 자동 산출(도선 맞닿음, d<=1mm 목표) — 순수 함수(§15.1)
+  // 솔리드 모드: H만으로 N/d/a 자동 산출(등면적 규칙, d<=1mm 목표) — 순수 함수(§15.1)
   function computeSolidWireLayout(H_mm) {
     const nNeeded = Math.ceil(H_mm / 1) + 1;      // d <= 1mm(=λ_min/10) 목표
     const N = Math.min(N_MAX, Math.max(2, nNeeded));
     const d_mm = H_mm / (N - 1);
-    const a_mm = d_mm / 2;                         // 맞닿음
+    const a_mm = d_mm / (2 * Math.PI);             // 등면적 규칙: 연속 도체 띠와 등가
     return { N, d_mm, a_mm, approxWarn: d_mm > 1 };
   }
 
@@ -959,6 +938,690 @@
   }
 
   // =====================================================================
+  // §33 캡처(이미지 내보내기) — 논문 그림용 PNG 렌더러
+  //
+  // 설계 원칙(지시서 D1~D11):
+  //  · 화면 렌더 경로(drawOverlay/drawOverlay1to1/drawIntensityPlot)는 손대지 않고
+  //    독립 렌더러를 따로 둔다. 캡처에는 제목·라벨·치수선·화살표가 하나도 없다.
+  //  · 캡처는 recompute()/scheduleRecompute()를 호출하지 않는다. 이미 계산된 solver
+  //    격자를 크롭·확대할 뿐이다(격자보다 큰 출력은 업스케일 — 정상 동작).
+  //  · 버튼·체크박스 같은 UI는 이 파일에 없다. 도구 페이지 capture.html이 담당하고
+  //    여기서는 window.__capture 훅만 노출한다(index.html/style.css 무변경).
+  // =====================================================================
+
+  // §33.1 필드 → 목적지 rect 렌더 (라이브/캡처 공용). 색 매핑·크롭 로직은 기존과 동일.
+  // 반환값은 실제로 쓰인 격자 크롭 사각형(캡처 메타의 gridColsUsed용) — 라이브 경로는 무시한다.
+  function drawFieldCrop(dstCtx, gridCanvas, gridCtx, fieldIndex, cam,
+                         destX, destY, destW, destH, cosP, sinP, A) {
+    const gw = solver.gridW, gh = solver.gridH;
+    if (!gw || !gh) return null;
+    if (gridCanvas.width !== gw || gridCanvas.height !== gh) {
+      gridCanvas.width = gw; gridCanvas.height = gh;
+    }
+    const img = gridCtx.createImageData(gw, gh);
+    const data = img.data;
+    for (let p = 0; p < gw * gh; p++) {
+      let fr, fi;
+      if (fieldIndex === 0) { fr = solver.incRe[p]; fi = solver.incIm[p]; }
+      else if (fieldIndex === 1) { fr = solver.scRe[p]; fi = solver.scIm[p]; }
+      else { fr = solver.incRe[p] + solver.scRe[p]; fi = solver.incIm[p] + solver.scIm[p]; }
+      const val = (fr * cosP + fi * sinP) * A;
+      colorFor(val / VMAX, data, p * 4);
+    }
+    gridCtx.putImageData(img, 0, 0);
+    const gxSpan = solver.xMax - solver.xMin;
+    let sx = (cam.xMin - solver.xMin) / gxSpan * gw;
+    let sxEnd = (cam.xMax - solver.xMin) / gxSpan * gw;
+    let sy = (solver.Yw - cam.Yw) / (2 * solver.Yw) * gh;
+    let syEnd = (solver.Yw + cam.Yw) / (2 * solver.Yw) * gh;
+    sx = Math.max(0, Math.min(gw, sx));
+    sxEnd = Math.max(0, Math.min(gw, sxEnd));
+    sy = Math.max(0, Math.min(gh, sy));
+    syEnd = Math.max(0, Math.min(gh, syEnd));
+    const sW = Math.max(1, sxEnd - sx), sH = Math.max(1, syEnd - sy);
+    dstCtx.imageSmoothingEnabled = true;
+    dstCtx.drawImage(gridCanvas, sx, sy, sW, sH, destX, destY, destW, destH);
+    return { sx: sx, sy: sy, sW: sW, sH: sH };
+  }
+
+  // §33.2 캡처 전용 격자 캔버스 — 라이브 루프의 offscreen과 공유하지 않는다.
+  const capGrid = document.createElement("canvas");
+  const capGridCtx = capGrid.getContext("2d");
+
+  const CAPTURE_PRESETS = [
+    { key: 'xs', label: '매우 작음', w: 640 },
+    { key: 's', label: '작음', w: 1200 },
+    { key: 'm', label: '보통', w: 1920 },
+  ];
+
+  const capture = {            // 캡처 전용 UI 상태(물리 state와 분리)
+    preset: 's',
+    screenLine: true,          // 스크린 위치선(글자 없음)
+    centerLine: true,          // x=0 중심 점선
+    frame: true,               // 얇은 테두리
+    shadowBand: true,          // 그래프의 |y|≤H/2 회색 음영
+    halfHLines: false,         // 필드 패널의 ±H/2 가로 점선(기본 끔)
+    unit: 'cm',                // 'cm' | 'mm'
+    fontScale: 1.5,            // 그래프 캡처 글자 배율(0.8~3.0) — 선 두께에는 영향 없음
+    lang: 'ko',                // 'ko' | 'en' — 그래프 축 이름 언어(라이브 화면과 무관)
+    screenLineEmph: 'normal',  // 'normal' | 'strong' | 'max' — 필드 캡처 스크린선 강조(§37)
+  };
+
+  let captureMeta = null;
+  const ANISO_TOL = 0.005;     // 등방 판정 허용 오차 0.5%
+
+  // §33.3 순수 헬퍼 — selfCheck() 단언 대상
+
+  // §37 스크린 위치선 강조 — 값은 s(=cw/1000) 배율 적용 전 기준.
+  // dash: null 이면 실선. halo: 0보다 크면 그 폭만큼 굵은 흰 선을 먼저 깔아
+  // 빨강/파랑 필드 어느 쪽 위에서도 선이 떨어져 보이게 한다.
+  const SCREEN_LINE_PRESETS = {
+    normal: { color: '#c0392b', width: 1.2, dash: [5, 4], halo: 0   },  // 현행과 동일
+    strong: { color: '#b02a1a', width: 2.2, dash: [7, 5], halo: 2.0 },
+    max:    { color: '#8e1b10', width: 3.2, dash: null,   halo: 2.6 },
+  };
+
+  function screenLinePreset(key) {
+    return SCREEN_LINE_PRESETS[key] || SCREEN_LINE_PRESETS.normal;   // 미지 값은 조용히 normal
+  }
+
+  function capturePixelSize(W, aspectHW) {
+    return { W: Math.round(W), H: Math.max(1, Math.round(W * aspectHW)) };
+  }
+
+  function niceTickStep(range, target) {
+    const raw = range / Math.max(1, target);
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / mag;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag;
+  }
+
+  function plotYMax(Imax) {
+    const m = Math.max(1.2, Imax * 1.08);
+    const step = niceTickStep(m, 4);
+    return Math.ceil(m / step) * step;
+  }
+
+  // 눈금 숫자 표기 — 스텝이 정수면 정수로, 아니면 스텝의 소수 자릿수만큼.
+  function formatTick(v, step) {
+    const digits = (step >= 1) ? 0 : Math.min(3, Math.ceil(-Math.log10(step)));
+    const t = v.toFixed(digits);
+    return (parseFloat(t) === 0) ? "0" : t;
+  }
+
+  // §33.3+ 그래프 축 이름 — 언어별 문자열은 여기 한 곳에서만 정한다.
+  // 라이브 화면(drawIntensityPlot 등)의 한글 라벨과는 무관하다.
+  // §38 새물리 투고규정 제7조: 양의 기호는 사체, 단위 기호와 숫자 첨자는 직립.
+  // 캔버스는 문자열 하나에 글꼴 하나만 쓰므로 조각 배열로 정의하고 fillParts로 이어 그린다.
+  // { t: 글자, i: true면 이탤릭 } — i는 물리량 기호 본체에만 붙인다(₀은 숫자라 직립).
+  const PLOT_LABEL_PARTS = {
+    ko: {
+      x: [{ t: "스크린 위의 위치 " }, { t: "y", i: true }],
+      y: [{ t: "스크린 세기 " }, { t: "I", i: true }, { t: "(" }, { t: "y", i: true },
+          { t: ") / " }, { t: "I", i: true }, { t: "₀" }],
+    },
+    en: {
+      x: [{ t: "Position on screen " }, { t: "y", i: true }],
+      y: [{ t: "I", i: true }, { t: "(" }, { t: "y", i: true },
+          { t: ") / " }, { t: "I", i: true }, { t: "₀" }],
+    },
+  };
+
+  function partsText(parts) { return parts.map(function (p) { return p.t; }).join(""); }
+
+  // 평문 이름은 조각에서 뽑는다 — 문자열과 조각이 어긋날 일이 없도록 단일 출처로 둔다.
+  const PLOT_LABELS = {
+    ko: { xName: partsText(PLOT_LABEL_PARTS.ko.x), yName: partsText(PLOT_LABEL_PARTS.ko.y) },
+    en: { xName: partsText(PLOT_LABEL_PARTS.en.x), yName: partsText(PLOT_LABEL_PARTS.en.y) },
+  };
+
+  // 기호 조각 전용 글꼴 — 이 코드의 sans-serif는 PC 기본 글꼴(예: 맑은 고딕)로 풀리고
+  // 거기엔 이탤릭 페이스가 없어 브라우저가 기울여 흉내 낸다. 진짜 이탤릭이 있는 Arial을
+  // 기호에만 지정한다. 직립 조각은 기존 그대로 sans-serif.
+  const SYM_ITALIC_FAMILY = "Arial, sans-serif";
+
+  // 조각 배열을 가운데 정렬로 이어 그린다. cx는 중심 x, y는 기준선.
+  // fillStyle·textBaseline은 호출 쪽에서 맞춰 둔다(textAlign은 이 함수가 관리·복원).
+  // 회전 변환(rotate) 안에서도 그대로 쓴다. 반환값은 조각 전체 너비.
+  function fillParts(c, parts, cx, y, fontPx) {
+    const roman = fontPx + "px sans-serif";
+    const italic = "italic " + fontPx + "px " + SYM_ITALIC_FAMILY;
+    let total = 0, i;
+    for (i = 0; i < parts.length; i++) {
+      c.font = parts[i].i ? italic : roman;
+      total += c.measureText(parts[i].t).width;
+    }
+    const prevAlign = c.textAlign;
+    c.textAlign = "left";
+    let x = cx - total / 2;
+    for (i = 0; i < parts.length; i++) {
+      c.font = parts[i].i ? italic : roman;
+      c.fillText(parts[i].t, x, y);
+      x += c.measureText(parts[i].t).width;
+    }
+    c.textAlign = prevAlign;
+    return total;
+  }
+
+  function captureLang(v) { return (v === 'en') ? 'en' : 'ko'; }   // 그 외 값은 조용히 ko
+  function plotLabels(lang) {
+    const k = captureLang(lang);
+    return {
+      xName: PLOT_LABELS[k].xName, yName: PLOT_LABELS[k].yName,
+      xParts: PLOT_LABEL_PARTS[k].x, yParts: PLOT_LABEL_PARTS[k].y,
+    };
+  }
+
+  // 파일명에 물리 파라미터를 박는다(D9). viewPreset(구도)은 선택 접미사 — sq|wide|sqtall.
+  // lang은 맨 뒤 선택 인자 — plot 캡처가 영문일 때만 "_en"이 더 붙는다(필드 캡처는 글자가
+  // 없어 언어 구분이 무의미하고, ko는 기존 파일명을 그대로 유지한다).
+  function captureFileName(kind, W, H_mm, L_mm, lam_cm, phaseDeg, viewPreset, lang) {
+    const ph = String(Math.round(((phaseDeg % 360) + 360) % 360)).padStart(3, '0');
+    const suffix = viewPreset ? ("_" + viewPreset) : "";
+    const langSfx = (kind === 'plot' && captureLang(lang) === 'en') ? "_en" : "";
+    return "diff_" + kind + "_H" + Math.round(H_mm) + "mm_L" + Math.round(L_mm) + "mm"
+      + "_lam" + lam_cm + "cm_ph" + ph + "_w" + W + suffix + langSfx + ".png";
+  }
+
+  // 현재 뷰 모드의 카메라·종횡비
+  function currentCaptureView() {
+    const is1to1 = (state.viewMode === '1to1');
+    const cam = is1to1 ? camera1to1 : camera;
+    const bandH = is1to1 ? layout.bandH1to1 : layout.bandH;
+    return { cam: cam, aspectHW: bandH / layout.bandW };
+  }
+
+  // §33.4 등방 가드 — view.isotropic이 아니라 캡처 이미지의 실측 픽셀 비율로 판정한다.
+  // view.isotropic/view.scaleRatio는 3분할 base 기준 값이라 1:1 모드에서는 뜻이 다르므로
+  // 판정에 쓰지 않고 참고값으로만 기록한다.
+  function captureAnisotropy(W) {
+    computeCamera();
+    const v = currentCaptureView();
+    const size = capturePixelSize(W, v.aspectHW);
+    const pxPerMm_x = size.W / ((v.cam.xMax - v.cam.xMin) * 1000);
+    const pxPerMm_y = size.H / (2 * v.cam.Yw * 1000);
+    const ratio = pxPerMm_y / pxPerMm_x;          // 등방 판정용 픽셀 축척 비
+    return {
+      W: size.W, H: size.H, pxPerMm_x: pxPerMm_x, pxPerMm_y: pxPerMm_y,
+      pxRatio: ratio,
+      // 세로:가로 축척 — view.scaleRatio와 같은 규약(1보다 크면 세로가 그만큼 눌린 것).
+      // 줌 100%·3분할에서는 수식이 view.scaleRatio와 같아 값이 일치한다(교차 검증용).
+      scaleRatio: pxPerMm_x / pxPerMm_y,
+      aniso: Math.abs(ratio - 1),
+      isotropic: Math.abs(ratio - 1) <= ANISO_TOL,
+      viewMode: state.viewMode,
+      viewIsotropic: view.isotropic,
+      viewScaleRatio: view.scaleRatio,
+    };
+  }
+
+  function warnIfAnisotropic(a) {
+    if (a.isotropic) return null;
+    const msg = "[캡처 경고] 비등방 뷰 — 세로:가로 축척 ×" + a.scaleRatio.toFixed(1)
+      + ", 파형이 왜곡됩니다";
+    console.warn(msg);
+    return msg;
+  }
+
+  // §33.5 필드 패널 캡처 렌더러 — fillText 호출이 하나도 없어야 한다(§0의 1~4번 제거 요건).
+  function renderFieldCapture(fieldIndex, W) {
+    computeCamera();
+    const v = currentCaptureView();
+    const cam = v.cam;
+    const size = capturePixelSize(W, v.aspectHW);
+    const cw = size.W, ch = size.H;
+    const cv = document.createElement("canvas");
+    cv.width = cw; cv.height = ch;
+    const c = cv.getContext("2d");
+    const s = cw / 1000;
+
+    const aniso = captureAnisotropy(W);
+    warnIfAnisotropic(aniso);
+
+    c.fillStyle = "#ffffff"; c.fillRect(0, 0, cw, ch);            // D6 불투명 흰 배경
+    const crop = drawFieldCrop(c, capGrid, capGridCtx, fieldIndex, cam,
+      0, 0, cw, ch, Math.cos(state.phase), Math.sin(state.phase), state.amp);
+
+    const toPx = function (wx, wy) {
+      return {
+        x: (wx - cam.xMin) / (cam.xMax - cam.xMin) * cw,
+        y: (cam.Yw - wy) / (2 * cam.Yw) * ch,
+      };
+    };
+
+    // x=0 중심 점선
+    if (capture.centerLine) {
+      const t = toPx(0, cam.Yw), b = toPx(0, -cam.Yw);
+      c.save();
+      c.strokeStyle = "#9aa0aa"; c.setLineDash([3 * s, 4 * s]); c.lineWidth = 1 * s;
+      c.beginPath(); c.moveTo(t.x, t.y); c.lineTo(b.x, b.y); c.stroke();
+      c.restore();
+    }
+
+    // 스크린 위치선 — 선만, "스크린" 글자 없음
+    const Lx = state.L_mm / 1000;
+    if (capture.screenLine && Lx >= cam.xMin && Lx <= cam.xMax) {
+      const t = toPx(Lx, cam.Yw), b = toPx(Lx, -cam.Yw);
+      const sp = screenLinePreset(capture.screenLineEmph);
+      const dash = sp.dash ? sp.dash.map(function (v) { return v * s; }) : [];
+      c.save();
+      c.setLineDash(dash);
+      if (sp.halo > 0) {   // 흰 헤일로를 먼저 — 같은 파선 패턴이라 틈은 비워 둔다
+        c.strokeStyle = "#ffffff"; c.lineWidth = (sp.width + sp.halo) * s;
+        c.beginPath(); c.moveTo(t.x, t.y); c.lineTo(b.x, b.y); c.stroke();
+      }
+      c.strokeStyle = sp.color; c.lineWidth = sp.width * s;
+      c.beginPath(); c.moveTo(t.x, t.y); c.lineTo(b.x, b.y); c.stroke();
+      c.restore();
+    }
+
+    // ±H/2 가로 점선(옵션, 기본 끔)
+    if (capture.halfHLines) {
+      const halfH = barHeight_mm(state.N, state.d_mm) / 2000;
+      c.save();
+      c.strokeStyle = "#6a6a72"; c.setLineDash([4 * s, 4 * s]); c.lineWidth = 1 * s;
+      [1, -1].forEach(function (sign) {
+        const p0 = toPx(cam.xMin, sign * halfH), p1 = toPx(cam.xMax, sign * halfH);
+        c.beginPath(); c.moveTo(p0.x, p0.y); c.lineTo(p1.x, p1.y); c.stroke();
+      });
+      c.restore();
+    }
+
+    // 장애물(도선/막대) — 화면과 같은 반지름 규칙, 픽셀 배율만 캡처 기준.
+    // 색은 세 패널 모두 동일(D5) — ①밴드도 반투명 회색으로 약하게 그리지 않는다.
+    const sPx = cw / (cam.xMax - cam.xMin);
+    const dPx = (state.d_mm / 1000) * sPx;
+    const aPx = state.mode === 'solid' ? dPx * 0.5 : solver.aEff_m * sPx;
+    const rPx = Math.min(dPx * 0.5, Math.max(1.5 * s, aPx));
+    for (let n = 0; n < state.N; n++) {
+      const p = toPx(0, solver.wiresY[n]);
+      if (p.y < -4 || p.y > ch + 4) continue;
+      c.beginPath(); c.arc(p.x, p.y, Math.max(0, rPx), 0, TWO_PI);
+      c.fillStyle = "#2a2a30"; c.fill();
+      c.lineWidth = 1 * s; c.strokeStyle = "#14141a"; c.stroke();
+    }
+
+    if (capture.frame) {
+      c.save();
+      c.strokeStyle = "#c8c8ce"; c.lineWidth = 1 * s;
+      c.strokeRect(0.5 * s, 0.5 * s, cw - 1 * s, ch - 1 * s);
+      c.restore();
+    }
+
+    captureMeta = {
+      kind: ['inc', 'sc', 'total'][fieldIndex], fieldIndex: fieldIndex, W: cw, H: ch,
+      xMin: cam.xMin, xMax: cam.xMax, Yw: cam.Yw,
+      viewMode: state.viewMode, zoom: view.zoomFactor,
+      isotropic: aniso.isotropic, scaleRatio: aniso.scaleRatio, pxRatio: aniso.pxRatio,
+      pxPerMm_x: aniso.pxPerMm_x, pxPerMm_y: aniso.pxPerMm_y,
+      gridColsUsed: crop ? Math.round(crop.sW) : 0,
+      gridRowsUsed: crop ? Math.round(crop.sH) : 0,
+      viewIsotropic: aniso.viewIsotropic, viewScaleRatio: aniso.viewScaleRatio,
+      screenLineEmph: capture.screenLineEmph,
+    };
+    console.log("[캡처] world x=[" + cam.xMin.toFixed(4) + ", " + cam.xMax.toFixed(4)
+      + "] m, Yw=±" + cam.Yw.toFixed(4) + " m, 격자 " + captureMeta.gridColsUsed + "열 사용");
+    return cv;
+  }
+
+  // §33.6 캡처 전용 샘플러 — screenIntensity()만 호출(물리 미변경). 순수 함수.
+  function sampleScreenProfileCap(L_m, Yw, M) {
+    const ys = new Float64Array(M), Is = new Float64Array(M);
+    let Imax = 0;
+    for (let i = 0; i < M; i++) {
+      const y = -Yw + (i + 0.5) / M * 2 * Yw;
+      const I = screenIntensity(L_m, y);
+      ys[i] = y; Is[i] = I; if (I > Imax) Imax = I;
+    }
+    return { ys: ys, Is: Is, Imax: Imax, M: M };
+  }
+
+  // §33.7 스크린 세기 그래프 캡처 — 화면 그래프와 달리 전치(가로축=위치 y, 세로축=세기 I).
+  //
+  // 글자 크기는 capture.fontScale 하나로 조절한다. 여백(플롯 박스)은 고정 비율이 아니라
+  // 실제 글자 폭·높이를 measureText로 재서 역산하므로, 배율을 키워도 숫자가 잘리지 않는다.
+  // 선 두께(곡선·축선·점선)는 fontScale의 영향을 받지 않는다 — 글자만 커진다.
+  function renderPlotCapture(W) {
+    const aspectHW = 0.62;                       // 그래프는 고정 종횡비(창 크기 무관)
+    const size = capturePixelSize(W, aspectHW);
+    const cw = size.W, ch = size.H;
+    const cv = document.createElement("canvas");
+    cv.width = cw; cv.height = ch;
+    const c = cv.getContext("2d");
+    const s = cw / 1000;                         // 선 두께 기준 배율(글자와 분리)
+
+    // 기본 글자 크기는 여기 한 곳에서만 정한다.
+    const FONT = {
+      tick: 14,     // 축 눈금 숫자
+      axis: 16,     // 축 이름
+      minTick: 11,  // 하한(px)
+      minAxis: 12,
+    };
+    const fs = function (base, min) {
+      return Math.max(min, Math.round(base * (cw / 1000) * capture.fontScale));
+    };
+    const tickPx = fs(FONT.tick, FONT.minTick);
+    const axisPx = fs(FONT.axis, FONT.minAxis);
+    const pad = Math.round(6 * (cw / 1000) * capture.fontScale);
+    const gap = pad;
+    const tickLen = Math.round(5 * s);           // 눈금선 길이 — 선이므로 배율과 무관
+
+    const L_m = state.L_mm / 1000;
+    const H_m = barHeight_mm(state.N, state.d_mm) / 1000;
+    const Yw = base.Yw;                          // 줌 무관 고정 기준(화면 그래프와 동일)
+    const prof = sampleScreenProfileCap(L_m, Yw, 400);
+    const yMax = plotYMax(prof.Imax);
+    const u = (capture.unit === 'cm') ? 100 : 1000;   // m → cm | mm
+
+    // 글자 높이 — actualBoundingBox 미지원 환경은 fontPx * 1.2 로 폴백한다.
+    function textH(text, fontPx) {
+      const m = c.measureText(text);
+      if (typeof m.actualBoundingBoxAscent === "number"
+        && typeof m.actualBoundingBoxDescent === "number") {
+        return m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+      }
+      return fontPx * 1.2;
+    }
+
+    // 눈금 값·문자열을 박스보다 먼저 만든다(여백을 글자 실측으로 역산해야 하므로).
+    const xStep = niceTickStep(2 * Yw * u, 6);
+    const xTicks = [];
+    for (let t = Math.ceil(-Yw * u / xStep) * xStep; t <= Yw * u + 1e-9; t += xStep)
+      xTicks.push({ v: t, s: formatTick(t, xStep) });
+    const yStep = niceTickStep(yMax, 4);
+    const yTicks = [];
+    for (let t = 0; t <= yMax + 1e-9; t += yStep)
+      yTicks.push({ v: t, s: formatTick(t, yStep) });
+
+    const LB = plotLabels(capture.lang);
+    // 단위는 직립 조각으로 뒤에 붙인다. 평문 xName/yName은 여백 역산(textH)과 meta용.
+    const xParts = LB.xParts.concat([{ t: " [" + capture.unit + "]" }]);
+    const yParts = LB.yParts;
+    const xName = LB.xName + " [" + capture.unit + "]";
+    const yName = LB.yName;
+
+    c.font = tickPx + "px sans-serif";
+    let yLabelW = 0;
+    for (let i = 0; i < yTicks.length; i++)
+      yLabelW = Math.max(yLabelW, c.measureText(yTicks[i].s).width);
+    let xTickH = 0;
+    for (let i = 0; i < xTicks.length; i++)
+      xTickH = Math.max(xTickH, textH(xTicks[i].s, tickPx));
+    const yTopLabelH = yTicks.length ? textH(yTicks[yTicks.length - 1].s, tickPx) : tickPx;
+    const xLastLabelW = xTicks.length ? c.measureText(xTicks[xTicks.length - 1].s).width : 0;
+
+    c.font = axisPx + "px sans-serif";
+    const xNameH = textH(xName, axisPx);
+    const yNameH = textH(yName, axisPx);
+
+    const box = {
+      l: Math.round(pad + yNameH + gap + yLabelW + tickLen),
+      r: Math.round(cw - pad - xLastLabelW / 2),
+      t: Math.round(pad + yTopLabelH / 2),
+      b: Math.round(ch - pad - xNameH - gap - xTickH - tickLen),
+    };
+
+    // 배율이 너무 크면 플롯이 찌그러진다. 자동으로 낮추지 않고 경고만 남긴다
+    // (사용자가 스스로 배율을 되돌릴 수 있어야 하므로).
+    const areaFrac = ((box.r - box.l) * (box.b - box.t)) / (cw * ch);
+    let boxWarn = null;
+    if (box.l >= box.r || box.t >= box.b) {
+      boxWarn = "[캡처 경고] 폰트 배율 ×" + capture.fontScale
+        + " 에서 플롯 영역이 뒤집혔습니다 — 배율을 낮추세요";
+    } else if (areaFrac < 0.40) {
+      boxWarn = "[캡처 경고] 폰트 배율 ×" + capture.fontScale
+        + " 에서 플롯 영역이 캔버스의 " + (areaFrac * 100).toFixed(0) + "% 뿐입니다 — 배율을 낮추세요";
+    }
+    if (boxWarn) console.warn(boxWarn);
+
+    const X = function (y_m) { return box.l + (y_m + Yw) / (2 * Yw) * (box.r - box.l); };
+    const Y = function (I) { return box.b - Math.min(I, yMax) / yMax * (box.b - box.t); };
+
+    // 1. 흰 배경
+    c.fillStyle = "#ffffff"; c.fillRect(0, 0, cw, ch);
+
+    // 2. 기하 그림자 구간 |y| ≤ H/2 회색 음영
+    if (capture.shadowBand) {
+      c.fillStyle = "rgba(0,0,0,0.08)";
+      const x0 = X(-H_m / 2), x1 = X(H_m / 2);
+      c.fillRect(x0, box.t, x1 - x0, box.b - box.t);
+    }
+
+    // 3. I = 1 가로 점선
+    c.save();
+    c.strokeStyle = "#9a9aa2"; c.lineWidth = 1 * s; c.setLineDash([4 * s, 4 * s]);
+    c.beginPath(); c.moveTo(box.l, Y(1)); c.lineTo(box.r, Y(1)); c.stroke();
+    c.restore();
+
+    // 4. 축선(왼쪽·아래)
+    c.strokeStyle = "#333"; c.lineWidth = 1.2 * s;
+    c.beginPath();
+    c.moveTo(box.l, box.t); c.lineTo(box.l, box.b); c.lineTo(box.r, box.b);
+    c.stroke();
+
+    // 5. 눈금
+    c.font = tickPx + "px sans-serif";
+    c.fillStyle = "#333"; c.strokeStyle = "#333"; c.lineWidth = 1 * s;
+    c.textAlign = "center"; c.textBaseline = "top";
+    for (let i = 0; i < xTicks.length; i++) {
+      const px = X(xTicks[i].v / u);
+      c.beginPath(); c.moveTo(px, box.b); c.lineTo(px, box.b + tickLen); c.stroke();
+      c.fillText(xTicks[i].s, px, box.b + tickLen);
+    }
+    c.textAlign = "right"; c.textBaseline = "middle";
+    for (let i = 0; i < yTicks.length; i++) {
+      const py = Y(yTicks[i].v);
+      c.beginPath(); c.moveTo(box.l, py); c.lineTo(box.l - tickLen, py); c.stroke();
+      c.fillText(yTicks[i].s, box.l - tickLen, py);
+    }
+
+    // 6. I(y) 곡선 — 두께는 fontScale과 무관
+    c.save();
+    c.strokeStyle = "#c0392b"; c.lineWidth = 2 * s;
+    c.lineJoin = "round"; c.lineCap = "round";
+    c.beginPath();
+    for (let i = 0; i < prof.M; i++) {
+      const px = X(prof.ys[i]), py = Y(prof.Is[i]);
+      if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
+    }
+    c.stroke();
+    c.restore();
+
+    // 7. 축 이름 (제목·범례·파라미터 캡션은 넣지 않는다)
+    //    기호만 사체로 그려야 하므로 조각 배열을 fillParts로 이어 그린다(§38).
+    c.fillStyle = "#333"; c.textBaseline = "bottom";
+    fillParts(c, xParts, (box.l + box.r) / 2, ch - pad, axisPx);
+    c.save();
+    c.translate(pad + yNameH / 2, (box.t + box.b) / 2);
+    c.rotate(-Math.PI / 2);
+    c.textBaseline = "middle";
+    fillParts(c, yParts, 0, 0, axisPx);
+    c.restore();
+
+    const points = [];
+    for (let i = 0; i < prof.M; i++) points.push([prof.ys[i] * u, prof.Is[i]]);
+    captureMeta = {
+      kind: 'plot', W: cw, H: ch, box: box, Yw_m: Yw, unit: capture.unit,
+      yMax: yMax, Imax: prof.Imax, H_m: H_m, points: points,
+      viewMode: state.viewMode, zoom: view.zoomFactor,
+      pxAtImax: Y(prof.Imax),
+      shadowBandPx: [X(-H_m / 2), X(H_m / 2)],
+      fontScale: capture.fontScale, tickPx: tickPx, axisPx: axisPx,
+      plotAreaFrac: areaFrac, boxWarn: boxWarn, lang: captureLang(capture.lang),
+    };
+    return cv;
+  }
+
+  // §33.8 저장 — toBlob → <a download> 클릭(D10).
+  function saveCanvasPNG(cv, name) {
+    return new Promise(function (resolve) {
+      cv.toBlob(function (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = name; a.click();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        console.log("[캡처] " + name + " " + cv.width + "×" + cv.height
+          + " " + (blob.size / 1024).toFixed(0) + "KB");
+        resolve({ name: name, w: cv.width, h: cv.height, size: blob.size });
+      }, 'image/png');
+    });
+  }
+
+  function renderCaptureCanvas(kind, W) {
+    return (kind === 'plot')
+      ? renderPlotCapture(W)
+      : renderFieldCapture({ inc: 0, sc: 1, total: 2 }[kind], W);
+  }
+
+  function presetWidth(key) {
+    const p = CAPTURE_PRESETS.find(function (q) { return q.key === (key || capture.preset); });
+    return (p || CAPTURE_PRESETS[1]).w;
+  }
+
+  function captureKind(kind, presetKey, viewPreset) {
+    const W = presetWidth(presetKey);
+    const cv = renderCaptureCanvas(kind, W);
+    return saveCanvasPNG(cv, captureFileName(kind, cv.width,
+      barHeight_mm(state.N, state.d_mm), state.L_mm, state.lam_cm,
+      state.phase * 180 / Math.PI, viewPreset, capture.lang));
+  }
+
+  // §33.9 준비 단계 제어 API — 상태를 바꿀 수 있는 것은 여기 모인 것뿐이다.
+  // 렌더러(dataURL/renderXxxCapture)는 §3.3대로 읽기 전용을 유지한다.
+  let capturePending = null;
+
+  function oneFrame() {
+    return new Promise(function (resolve) {
+      let done = false;
+      const fin = function () { if (!done) { done = true; resolve(); } };
+      requestAnimationFrame(fin);
+      setTimeout(fin, 120);          // 백그라운드 탭에서 rAF가 멈추는 경우 폴백
+    });
+  }
+
+  function nextFrames(n) {
+    let p = Promise.resolve();
+    for (let i = 0; i < n; i++) p = p.then(oneFrame);
+    return p;
+  }
+
+  // recompute가 돌 것으로 예상되는 조작(H/L/λ 변경 등) 직전에 호출해 기준점을 기록한다.
+  // 상태는 바꾸지 않고 현재 배열 참조만 저장한다.
+  function captureExpectRecompute() {
+    capturePending = { prevIncRe: solver.incRe, expectGridH: solver.gridH };
+    return true;
+  }
+
+  function capturePauseAnim() {
+    if (state.playing) playBtn.click();   // 기존 핸들러가 라벨·힌트까지 일관되게 갱신
+    return !state.playing;
+  }
+
+  function captureSetPhaseDeg(deg) {
+    const d = ((Number(deg) % 360) + 360) % 360;
+    phaseSlider.value = String(d);
+    phaseSlider.dispatchEvent(new Event("input", { bubbles: true }));
+    return state.phase * 180 / Math.PI;
+  }
+
+  function captureSetViewMode(mode) {
+    const m = (mode === '1to1') ? '1to1' : '3band';
+    if (m === state.viewMode) { capturePending = null; return state.viewMode; }
+    const aspect3band = layout.bandH / layout.bandW;
+    const aspect1to1 = layout.bandH1to1 / layout.bandW;
+    const newGridH = requiredGridH(layout.gridW, aspect3band, aspect1to1, m);
+    // gridH 요구치가 바뀔 때만 switchViewMode가 recompute를 예약한다(§20.4).
+    capturePending = (newGridH !== solver.gridH)
+      ? { prevIncRe: solver.incRe, expectGridH: newGridH } : null;
+    switchViewMode(m);
+    applyViewModeUI();
+    return state.viewMode;
+  }
+
+  // 예약된 recompute가 끝나고 화면이 그려질 때까지 기다린다. recompute()에 훅을 걸지
+  // 않고 solver 배열 참조가 교체되었는지로 판정한다(recompute는 매번 새 배열을 할당한다).
+  // 예약된 재계산이 없으면 즉시(rAF 2회 뒤) resolve 한다.
+  function captureReady(timeoutMs) {
+    const limit = Math.max(1000, Number(timeoutMs) || 10000);
+    const t0 = performance.now();
+    const pending = capturePending;
+    capturePending = null;
+    return new Promise(function (resolve, reject) {
+      (function poll() {
+        const settled = !pending ||
+          (solver.incRe !== pending.prevIncRe && solver.gridH === pending.expectGridH);
+        if (settled) {
+          nextFrames(2).then(function () {
+            resolve({
+              viewMode: state.viewMode, gridW: solver.gridW, gridH: solver.gridH,
+              waitedMs: Math.round(performance.now() - t0),
+            });
+          });
+          return;
+        }
+        if (performance.now() - t0 > limit) {
+          reject(new Error("[캡처] ready() 시간초과 " + limit + "ms — recompute가 끝나지 않았습니다"));
+          return;
+        }
+        setTimeout(poll, 50);
+      })();
+    });
+  }
+
+  // §33.10 도구/테스트 훅 — capture.html이 iframe 너머로 호출한다(D11, 프로덕션에도 남김).
+  window.__capture = {
+    presets: CAPTURE_PRESETS,
+    options: capture,
+    fileName: captureFileName,
+    labels: function (lang) {
+      const L = plotLabels(lang);
+      return { xName: L.xName, yName: L.yName, xParts: L.xParts, yParts: L.yParts };
+    },
+    symItalicFont: function (fontPx) { return "italic " + fontPx + "px " + SYM_ITALIC_FAMILY; },
+    get meta() { return captureMeta; },
+    layout: function () {
+      return {
+        cssW: layout.cssW, cssH: layout.cssH,
+        bandW: layout.bandW, bandH: layout.bandH, bandH1to1: layout.bandH1to1,
+        viewMode: state.viewMode, zoom: view.zoomFactor,
+        gridW: solver.gridW, gridH: solver.gridH,
+      };
+    },
+    params: function () {
+      return {
+        mode: state.mode, N: state.N, d_mm: state.d_mm, a_mm: state.a_mm,
+        H_mm: barHeight_mm(state.N, state.d_mm),
+        L_mm: state.L_mm, lam_cm: state.lam_cm,
+        phaseDeg: state.phase * 180 / Math.PI, playing: state.playing,
+      };
+    },
+    // 격자 데이터가 캡처 전후로 바뀌지 않았는지 확인하기 위한 읽기 전용 체크섬
+    gridChecksum: function (n) {
+      const m = Math.max(1, Math.min(solver.gridW * solver.gridH, Number(n) || 10));
+      let inc = 0, sc = 0;
+      for (let i = 0; i < m; i++) { inc += solver.incRe[i]; sc += solver.scRe[i]; }
+      return { n: m, incRe: inc, scRe: sc, gridW: solver.gridW, gridH: solver.gridH };
+    },
+    anisotropy: function (presetKey) { return captureAnisotropy(presetWidth(presetKey)); },
+    dataURL: function (kind, presetKey) {
+      return renderCaptureCanvas(kind, presetWidth(presetKey)).toDataURL('image/png');
+    },
+    blobSize: function (kind, presetKey) {
+      const cv = renderCaptureCanvas(kind, presetWidth(presetKey));
+      return new Promise(function (resolve) {
+        cv.toBlob(function (b) { resolve(b.size); }, 'image/png');
+      });
+    },
+    save: function (kind, presetKey, viewPreset) { return captureKind(kind, presetKey, viewPreset); },
+    // 준비 단계 전용(상태 변경 가능)
+    pause: function () { return capturePauseAnim(); },
+    setPhaseDeg: function (deg) { return captureSetPhaseDeg(deg); },
+    setViewMode: function (mode) { return captureSetViewMode(mode); },
+    expectRecompute: function () { return captureExpectRecompute(); },
+    ready: function (timeoutMs) { return captureReady(timeoutMs); },
+  };
+
+  // =====================================================================
   // 11. 콘솔 자가검증
   // =====================================================================
   function selfCheck() {
@@ -982,6 +1645,8 @@
       const r = computeSolidWireLayout(100);
       console.assert(r.N === 101 && Math.abs(r.d_mm - 1.0) < 1e-9 && !r.approxWarn,
         "computeSolidWireLayout(100): N=101,d=1.0mm,경고 없음");
+      console.assert(Math.abs(r.a_mm - 1.0 / (2 * Math.PI)) < 1e-9,
+        "computeSolidWireLayout(100): 등면적 규칙 a=d/2π");
     }
     {
       const r = computeSolidWireLayout(150);
@@ -1041,6 +1706,48 @@
       const sbar = computeShadowFillRatio(state.L_mm / 1000, H_m);
       console.assert(sbar >= 0, "S̄ ≥ 0");
       console.log("[검증] 그림자 채움률 S̄=", sbar.toFixed(4));
+    }
+    { // §33 캡처 순수 헬퍼
+      const p = capturePixelSize(1200, 0.25);
+      console.assert(p.W === 1200 && p.H === 300, "capturePixelSize(1200,0.25)=1200×300");
+      console.assert(Math.abs(niceTickStep(20, 5) - 5) < 1e-12, "niceTickStep(20,5)=5");
+      console.assert(Math.abs(niceTickStep(1, 5) - 0.2) < 1e-12, "niceTickStep(1,5)=0.2");
+      console.assert(Math.abs(plotYMax(0.3) - 1.5) < 1e-12, "plotYMax(0.3)=1.5 (하한 1.2 적용)");
+      console.assert(Math.abs(plotYMax(3.0) - 4) < 1e-12, "plotYMax(3.0)=4");
+      console.assert(
+        captureFileName('total', 1200, 150, 100, 12, 0) ===
+        'diff_total_H150mm_L100mm_lam12cm_ph000_w1200.png', "captureFileName 형식");
+      console.assert(
+        captureFileName('total', 1200, 150, 100, 12, 0, 'sq') ===
+        'diff_total_H150mm_L100mm_lam12cm_ph000_w1200_sq.png', "captureFileName 구도 접미사");
+      console.assert(
+        captureFileName('plot', 1200, 150, 100, 12, 0, 'sq', 'en') ===
+        'diff_plot_H150mm_L100mm_lam12cm_ph000_w1200_sq_en.png', "captureFileName 영문 접미사");
+      console.assert(
+        captureFileName('plot', 1200, 150, 100, 12, 0, 'sq', 'ko') ===
+        'diff_plot_H150mm_L100mm_lam12cm_ph000_w1200_sq.png', "captureFileName 한글은 접미사 없음");
+      console.assert(captureLang('zz') === 'ko' && captureLang('en') === 'en', "captureLang 폴백");
+      console.assert(screenLinePreset('zz') === SCREEN_LINE_PRESETS.normal, "스크린선 프리셋 폴백");
+      console.assert(SCREEN_LINE_PRESETS.normal.width === 1.2
+        && SCREEN_LINE_PRESETS.normal.halo === 0
+        && String(SCREEN_LINE_PRESETS.normal.dash) === "5,4", "normal은 현행 값 고정");
+      console.assert(!/[\uAC00-\uD7A3\u3130-\u318F\u1100-\u11FF]/.test(
+        plotLabels('en').xName + plotLabels('en').yName), "영문 라벨에 한글 없음");
+      // §38 조각 표기 — 평문은 조각에서 뽑히고, 이탤릭은 기호 본체에만 붙는다.
+      ['ko', 'en'].forEach(function (k) {
+        const L = plotLabels(k);
+        console.assert(partsText(L.xParts) === L.xName && partsText(L.yParts) === L.yName,
+          k + " 평문 축 이름이 조각과 일치");
+        L.xParts.concat(L.yParts).filter(function (p) { return p.i; }).forEach(function (p) {
+          console.assert(/^[yIĪλ]$/.test(p.t), "이탤릭 조각은 기호 본체 한 글자: " + p.t);
+        });
+      });
+      // 대칭 배열 → I(y) 대칭성 (가로축이 위치임을 보장하는 물리 단언)
+      const pr = sampleScreenProfileCap(state.L_mm / 1000, base.Yw, 40);
+      let maxAsym = 0;
+      for (let i = 0; i < 20; i++) maxAsym = Math.max(maxAsym, Math.abs(pr.Is[i] - pr.Is[39 - i]));
+      console.assert(maxAsym < 1e-6, "sampleScreenProfileCap 대칭성 |I(y)-I(-y)|<1e-6");
+      console.log("[검증] §33 캡처 헬퍼 단언 통과, 대칭 오차=", maxAsym.toExponential(2));
     }
   }
 

@@ -8,6 +8,88 @@
   const NUM_POINTS = 241;   // 메인 플롯 표본 수(§27.2)
   const SWEEP_POINTS = 24;  // λ 스윕 표본 수(§34.1). 이 한 줄만 10으로 되돌리면 이전 동작 복귀.
   const CROSSING_LAM_MIN = 2.0;  // 교차 탐색 하한 cm(§34.3) — 이 아래 부호 변화는 이산화 기인 가능
+  const LABEL_MOM = "입사파-산란파 중첩";   // §35 범례 라벨 단일 출처
+  const LABEL_HUY = "하위헌스-프레넬";
+
+  // §36 캔버스 라벨 언어 — 화면과 PNG에 동시에 적용된다(패널 DOM은 항상 한국어).
+  // 하이픈은 두 범례 모두 ASCII 하이픈-마이너스(U+002D)로 통일한다.
+  // §38 새물리 투고규정 제7조: 양의 기호는 사체, 단위 기호와 첨자는 직립.
+  // 캔버스는 문자열 하나에 글꼴 하나만 쓰므로 축 제목은 조각 배열로 정의하고
+  // fillParts로 이어 그린다. { t: 글자, i: true면 이탤릭 } — i는 기호 본체에만.
+  // ₀은 숫자, ₛ는 shadow(그림자)의 약자이므로 둘 다 직립이다. 범례는 전부 직립.
+  const AXIS_PARTS = {
+    ko: {
+      mainX: [{ t: "스크린 위치 " }, { t: "y", i: true }, { t: " [cm]" }],
+      mainY: [{ t: "I", i: true }, { t: " / " }, { t: "I", i: true }, { t: "₀(입사)" }],
+      sweepX: [{ t: "파장 " }, { t: "λ", i: true }, { t: " [cm] (로그축)" }],
+      sweepY: [{ t: "Ī", i: true }, { t: "ₛ (그림자 영역의 평균 상대 세기)" }],
+    },
+    en: {
+      mainX: [{ t: "Position on screen " }, { t: "y", i: true }, { t: " [cm]" }],
+      mainY: [{ t: "I", i: true }, { t: "(" }, { t: "y", i: true },
+              { t: ") / " }, { t: "I", i: true }, { t: "₀" }],
+      sweepX: [{ t: "Wavelength " }, { t: "λ", i: true }, { t: " [cm] (log scale)" }],
+      sweepY: [{ t: "Ī", i: true }, { t: "ₛ (shadow mean intensity)" }],
+    },
+  };
+
+  function partsText(parts) { return parts.map(function (p) { return p.t; }).join(""); }
+
+  // 축 제목 평문은 조각에서 뽑는다 — 문자열과 조각이 어긋날 일이 없도록 단일 출처로.
+  const PLOT_LABELS = {
+    ko: {
+      mainX: partsText(AXIS_PARTS.ko.mainX),
+      mainY: partsText(AXIS_PARTS.ko.mainY),
+      mom: LABEL_MOM,
+      huy: LABEL_HUY,
+      sweepX: partsText(AXIS_PARTS.ko.sweepX),
+      sweepY: partsText(AXIS_PARTS.ko.sweepY),
+      momSolid: LABEL_MOM + " (실선)",
+      huyDashed: LABEL_HUY + " (점선)",
+    },
+    en: {
+      mainX: partsText(AXIS_PARTS.en.mainX),
+      mainY: partsText(AXIS_PARTS.en.mainY),
+      mom: "Incident-scattered superposition",
+      huy: "Huygens-Fresnel",
+      sweepX: partsText(AXIS_PARTS.en.sweepX),
+      sweepY: partsText(AXIS_PARTS.en.sweepY),
+      momSolid: "Incident-scattered superposition (solid)",
+      huyDashed: "Huygens-Fresnel (dashed)",
+    },
+  };
+
+  // 기호 조각 전용 글꼴 — 이 코드의 sans-serif는 PC 기본 글꼴(예: 맑은 고딕)로 풀리고
+  // 거기엔 이탤릭 페이스가 없어 브라우저가 기울여 흉내 낸다. 진짜 이탤릭이 있는 Arial을
+  // 기호에만 지정한다. 직립 조각은 기존 그대로 sans-serif.
+  const SYM_ITALIC_FAMILY = "Arial, sans-serif";
+
+  // 조각 배열을 가운데 정렬로 이어 그린다. cx는 중심 x, y는 기준선.
+  // fillStyle·textBaseline은 호출 쪽에서 맞춰 둔다(textAlign은 이 함수가 관리·복원).
+  // 회전 변환(rotate) 안에서도 그대로 쓴다. 반환값은 조각 전체 너비.
+  function fillParts(ctx, parts, cx, y, fontPx) {
+    const roman = fontPx + "px sans-serif";
+    const italic = "italic " + fontPx + "px " + SYM_ITALIC_FAMILY;
+    let total = 0, i;
+    for (i = 0; i < parts.length; i++) {
+      ctx.font = parts[i].i ? italic : roman;
+      total += ctx.measureText(parts[i].t).width;
+    }
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = "left";
+    let x = cx - total / 2;
+    for (i = 0; i < parts.length; i++) {
+      ctx.font = parts[i].i ? italic : roman;
+      ctx.fillText(parts[i].t, x, y);
+      x += ctx.measureText(parts[i].t).width;
+    }
+    ctx.textAlign = prevAlign;
+    return total;
+  }
+
+  function normLang(v) { return (v === 'en') ? 'en' : 'ko'; }   // 그 외 값은 조용히 ko
+  function plotLabels() { return PLOT_LABELS[normLang(state.lang)]; }
+  function axisParts() { return AXIS_PARTS[normLang(state.lang)]; }
 
   // =====================================================================
   // 1. 상태
@@ -15,6 +97,7 @@
   const state = {
     H_mm: 100, L_mm: 300, lam_cm: 1,
     fontScale: 1.0,   // 글자 크기 배율 — 글자와 축 여백에만 적용(곡선 굵기·마커는 불변)
+    lang: 'ko',       // 'ko' | 'en' — 캔버스 축 제목·범례 언어(패널 DOM은 항상 한국어)
   };
 
   // =====================================================================
@@ -151,7 +234,7 @@
     const d_target_mm = Math.min(1, lam_mm / 20);
     const N = Math.min(400, Math.max(2, Math.ceil(H_mm / d_target_mm) + 1));
     const d_mm = H_mm / (N - 1);
-    const a_mm = d_mm / 2;
+    const a_mm = d_mm / (2 * Math.PI);  // 등면적 규칙: 연속 도체 띠와 등가
     const warn = d_mm > 1.05 * d_target_mm;
     return { N, d_mm, a_mm, d_target_mm, warn };
   }
@@ -308,6 +391,7 @@
     const AXIS_TITLE_PX = 20;   // 축 제목(스크린 위치 y, I/I₀)
     const LEGEND_PX = 18;       // 좌상단 범례(파란선/빨간 점선 설명)
     const EXPORT_BASE_W = 1200; // PNG 내보내기 스케일 기준 폭 — 이 폭에서 scale=1
+    const LB = plotLabels();
 
     const canvas = targetCanvas || el.mainCanvas;
     let w, h, scale;
@@ -367,17 +451,24 @@
     ctx.setLineDash([]);
 
     // 축 라벨
-    ctx.fillStyle = "#5a5a62"; ctx.font = `${AXIS_TITLE_PX * ts}px sans-serif`; ctx.textAlign = "center";
-    ctx.fillText("스크린 위치 y (mm)", m.left + plotW / 2, h - 8 * ts);
+    const AP = axisParts();
+    ctx.fillStyle = "#5a5a62"; ctx.textAlign = "center";
+    fillParts(ctx, AP.mainX, m.left + plotW / 2, h - 8 * ts, AXIS_TITLE_PX * ts);
     ctx.save(); ctx.translate(24 * ts, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.fillText("I / I₀(입사)", 0, 0); ctx.restore();
+    fillParts(ctx, AP.mainY, 0, 0, AXIS_TITLE_PX * ts); ctx.restore();
 
+    // 가로축 눈금은 cm로 표시(계산·좌표는 mm 그대로) — 정수면 정수, 아니면 소수 한 자리
+    const cmTick = (y_mm) => {
+      const c = Math.round(y_mm) / 10;
+      return Number.isInteger(c) ? c.toFixed(0) : c.toFixed(1);
+    };
     ctx.font = `${TICK_PX * ts}px sans-serif`;
-    ctx.textAlign = "left"; ctx.fillText((-halfRange).toFixed(0), m.left, h - 32 * ts);
-    ctx.textAlign = "right"; ctx.fillText(halfRange.toFixed(0), m.left + plotW, h - 32 * ts);
+    ctx.textAlign = "left"; ctx.fillText(cmTick(-halfRange), m.left, h - 32 * ts);
+    ctx.textAlign = "right"; ctx.fillText(cmTick(halfRange), m.left + plotW, h - 32 * ts);
     ctx.textAlign = "center";
-    ctx.fillText((-H_mm / 2).toFixed(0), shadeX0, h - 32 * ts);
-    ctx.fillText((H_mm / 2).toFixed(0), shadeX1, h - 32 * ts);
+    ctx.fillText(cmTick(-H_mm / 2), shadeX0, h - 32 * ts);
+    ctx.fillText("0", px(0), h - 32 * ts);
+    ctx.fillText(cmTick(H_mm / 2), shadeX1, h - 32 * ts);
     ctx.textAlign = "right";
     for (let v = 0; v <= Imax; v++) {
       ctx.fillText(v.toFixed(0), m.left - 8 * ts, py(v) + 4 * ts);
@@ -387,11 +478,11 @@
     ctx.font = `${LEGEND_PX * ts}px sans-serif`; ctx.textAlign = "left";
     ctx.strokeStyle = "#2f6feb"; ctx.setLineDash([]); ctx.lineWidth = 1.8 * scale;
     ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 16 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 16 * ts); ctx.stroke();
-    ctx.fillStyle = "#333"; ctx.fillText("도선 막대", m.left + 50 * ts, m.top + 22 * ts);
+    ctx.fillStyle = "#333"; ctx.fillText(LB.mom, m.left + 50 * ts, m.top + 22 * ts);
     ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5 * scale, 4 * scale]);
     ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 42 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 42 * ts); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillText("하위헌스-프레넬", m.left + 50 * ts, m.top + 48 * ts);
+    ctx.fillText(LB.huy, m.left + 50 * ts, m.top + 48 * ts);
   }
 
   function updateInfoBox(mom, huy, H_mm, L_mm, lam_cm) {
@@ -402,8 +493,8 @@
       : "";
     el.infoBox.innerHTML =
       `Fresnel 수 <b>N_F = ${nF.toFixed(2)}</b> <span style="font-size:11px;color:#6b6b72">(하위헌스-프레넬 앱의 a²/(λz)는 이 값의 4배)</span><br>` +
-      `I₀ — 도선 막대 <b>${mom.I0.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.I0.toFixed(3)}</b> (입사=1.000)<br>` +
-      `Īₛ — 도선 막대 <b>${mom.sbar.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.sbar.toFixed(3)}</b><br>` +
+      `I₀ — ${LABEL_MOM} <b>${mom.I0.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.I0.toFixed(3)}</b> (입사=1.000)<br>` +
+      `Īₛ — ${LABEL_MOM} <b>${mom.sbar.toFixed(3)}</b> · 하위헌스-프레넬 <b>${huy.sbar.toFixed(3)}</b><br>` +
       `Īₛ 상대 차이 <b>${diffPct.toFixed(1)}%</b>` + warnBadge;
   }
 
@@ -536,6 +627,7 @@
     const SW_CAPTION_PX = 16;       // 우상단 H·L 캡션
     const SW_EXPORT_BASE_W = 1200;  // 이 폭에서 scale=1 (drawMainPlot의 EXPORT_BASE_W와 동일)
     const SW_SCREEN_SCALE = 0.65;   // 화면(38% 높이 패널)용 축소 배율
+    const LB = plotLabels();
 
     const canvas = targetCanvas || el.sweepCanvas;
     let w, h, scale;
@@ -611,8 +703,9 @@
       }
     });
 
-    ctx.fillStyle = "#5a5a62"; ctx.font = `${SW_AXIS_TITLE_PX * ts}px sans-serif`; ctx.textAlign = "center";
-    ctx.fillText("파장 λ (cm, 로그축)", m.left + plotW / 2, h - 8 * ts);
+    const AP = axisParts();
+    ctx.fillStyle = "#5a5a62"; ctx.textAlign = "center";
+    fillParts(ctx, AP.sweepX, m.left + plotW / 2, h - 8 * ts, SW_AXIS_TITLE_PX * ts);
     // x축 눈금 라벨 — 로그축이므로 1,2,5,10,20,30에 배치(§34.4)
     ctx.font = `${SW_TICK_PX * ts}px sans-serif`;
     [1, 2, 5, 10, 20, 30].forEach((lam) => {
@@ -621,18 +714,17 @@
       ctx.fillText(String(lam), x, h - 32 * ts);
     });
     ctx.save(); ctx.translate(24 * ts, m.top + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.font = `${SW_AXIS_TITLE_PX * ts}px sans-serif`;
-    ctx.textAlign = "center"; ctx.fillText("Īₛ (그림자 영역의 평균 상대 세기)", 0, 0); ctx.restore();
+    fillParts(ctx, AP.sweepY, 0, 0, SW_AXIS_TITLE_PX * ts); ctx.restore();
 
     // 범례 — 선 종류로 두 모형을 구분(drawMainPlot과 동일 형식)
     ctx.font = `${SW_LEGEND_PX * ts}px sans-serif`; ctx.textAlign = "left";
     ctx.strokeStyle = "#2f6feb"; ctx.setLineDash([]); ctx.lineWidth = 1.8 * scale;
     ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 16 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 16 * ts); ctx.stroke();
-    ctx.fillStyle = "#333"; ctx.fillText("도선 막대 (실선)", m.left + 50 * ts, m.top + 22 * ts);
+    ctx.fillStyle = "#333"; ctx.fillText(LB.momSolid, m.left + 50 * ts, m.top + 22 * ts);
     ctx.strokeStyle = "#c0392b"; ctx.setLineDash([5 * scale, 4 * scale]);
     ctx.beginPath(); ctx.moveTo(m.left + 10 * ts, m.top + 42 * ts); ctx.lineTo(m.left + 44 * ts, m.top + 42 * ts); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillText("하위헌스-프레넬 (점선)", m.left + 50 * ts, m.top + 48 * ts);
+    ctx.fillText(LB.huyDashed, m.left + 50 * ts, m.top + 48 * ts);
 
     // 조건 캡션(우상단) — 스윕을 실행한 시점의 H·L
     if (meta) {
@@ -693,6 +785,24 @@
   // =====================================================================
   function selfCheck() {
     console.log("[검증] J0(1)=", besselJ0(1).toFixed(6), "(기대 0.765198)");
+    { // §36 라벨 언어
+      console.assert(normLang('zz') === 'ko' && normLang('en') === 'en', "normLang 폴백");
+      console.assert(!/[\uAC00-\uD7A3\u3130-\u318F\u1100-\u11FF]/.test(
+        Object.values(PLOT_LABELS.en).join("")), "영문 라벨에 한글 없음");
+      console.assert(PLOT_LABELS.ko.mom === LABEL_MOM, "ko 범례는 LABEL_MOM 단일 출처");
+      console.assert(!/ - /.test(Object.values(PLOT_LABELS.en).join("|")),
+        "영문 라벨 하이픈 양옆에 공백 없음");
+      // §38 조각 표기 — 평문은 조각에서 뽑히고, 이탤릭은 기호 본체에만 붙는다.
+      ['ko', 'en'].forEach(function (k) {
+        ['mainX', 'mainY', 'sweepX', 'sweepY'].forEach(function (key) {
+          console.assert(partsText(AXIS_PARTS[k][key]) === PLOT_LABELS[k][key],
+            k + "." + key + " 평문이 조각과 일치");
+          AXIS_PARTS[k][key].filter(function (p) { return p.i; }).forEach(function (p) {
+            console.assert(/^[yIĪλ]$/.test(p.t), "이탤릭 조각은 기호 본체 한 글자: " + p.t);
+          });
+        });
+      });
+    }
     console.log("[검증] Y0(1)=", besselY0(1).toFixed(6), "(기대 0.088257)");
     {
       // 장애물 없음(obstacleOn=false) → 세기 = (1²+1²)/REF_INTENSITY = 1
@@ -787,6 +897,7 @@
     exportPngBtn: document.getElementById("exportPngBtn"),
     exportSweepPngBtn: document.getElementById("exportSweepPngBtn"),
     exportStatus: document.getElementById("exportStatus"),
+    langEnCheck: document.getElementById("langEnCheck"),
   };
 
   function syncLabels() {
@@ -807,6 +918,7 @@
     if (p.has('H')) state.H_mm = parseFloat(p.get('H'));
     if (p.has('L')) state.L_mm = parseFloat(p.get('L'));
     if (p.has('lam')) state.lam_cm = parseFloat(p.get('lam'));
+    if (p.has('lang')) state.lang = normLang(p.get('lang'));
   }
 
   el.hSlider.addEventListener("input", function () {
@@ -848,8 +960,31 @@
     setTimeout(() => { el.csvCopyBtn.textContent = old; }, 1200);
   });
 
-  // 글자 크기 — 물리량이 바뀌는 게 아니므로 재계산 없이 두 차트를 다시 그리기만 한다.
-  function redrawForFontScale() {
+  // §36 라벨 언어 지속 — 'capture.lang'과 별도 키다(캡처 도구 동작에 영향을 주지 않기 위해).
+  const LANG_KEY = 'comparePrint.lang';
+
+  function loadLang() {
+    try {
+      const raw = window.localStorage.getItem(LANG_KEY);
+      return (raw === null) ? 'ko' : normLang(raw);
+    } catch (e) { return 'ko'; }   // file://에서 저장소가 막혀도 부팅은 성공해야 한다
+  }
+
+  function saveLang(v) {
+    try { window.localStorage.setItem(LANG_KEY, String(v)); } catch (e) { /* 무시 */ }
+  }
+
+  // 재계산 없이 스냅샷만 다시 그린다(글자 크기 전환과 같은 성질).
+  function applyLang(v, persist) {
+    state.lang = normLang(v);
+    el.langEnCheck.checked = (state.lang === 'en');
+    if (persist) saveLang(state.lang);
+    redrawCharts();
+  }
+
+  // 글자 크기·라벨 언어 — 물리량이 바뀌는 게 아니므로 재계산 없이
+  // lastPlot·lastSweep 스냅샷으로 두 차트를 다시 그리기만 한다.
+  function redrawCharts() {
     if (lastPlot) drawMainPlot(lastPlot.mom, lastPlot.huy, lastPlot.H_mm);
     if (lastSweep) {
       drawSweepChart(lastSweep.lambdas, lastSweep.sMoM, lastSweep.sHuy, lastSweep.crossings,
@@ -860,7 +995,11 @@
   el.fontSlider.addEventListener("input", function () {
     state.fontScale = parseFloat(this.value);
     el.fontVal.textContent = state.fontScale.toFixed(1) + "배";
-    redrawForFontScale();
+    redrawCharts();
+  });
+
+  el.langEnCheck.addEventListener("change", function () {
+    applyLang(this.checked ? 'en' : 'ko', true);
   });
 
   window.addEventListener("resize", () => { drawMainPlot === undefined || recomputeBoth(); });
@@ -880,7 +1019,8 @@
     offCanvas.toBlob((blob) => {
       if (!blob) return;
       const lamStr = formatLamForFilename(state.lam_cm);
-      const filename = `diffraction_H${state.H_mm.toFixed(0)}_L${state.L_mm.toFixed(0)}_lam${lamStr}_${expW}x${expH}.png`;
+      const langSfx = (normLang(state.lang) === 'en') ? "_en" : "";
+      const filename = `diffraction_H${state.H_mm.toFixed(0)}_L${state.L_mm.toFixed(0)}_lam${lamStr}_${expW}x${expH}${langSfx}.png`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = filename;
@@ -902,7 +1042,8 @@
       offCanvas, expW, expH);
     offCanvas.toBlob((blob) => {
       if (!blob) return;
-      const filename = `sweep_H${lastSweep.H_mm.toFixed(0)}_L${lastSweep.L_mm.toFixed(0)}_lam1to30cm_${expW}x${expH}.png`;
+      const langSfx = (normLang(state.lang) === 'en') ? "_en" : "";
+      const filename = `sweep_H${lastSweep.H_mm.toFixed(0)}_L${lastSweep.L_mm.toFixed(0)}_lam1to30cm_${expW}x${expH}${langSfx}.png`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = filename;
@@ -919,7 +1060,10 @@
   // =====================================================================
   // 시작
   // =====================================================================
+  const hasLangParam = new URLSearchParams(window.location.search).has('lang');
   applyUrlParams();
+  if (!hasLangParam) state.lang = loadLang();
+  el.langEnCheck.checked = (state.lang === 'en');
   setSlidersFromState();
   selfCheck();
   recomputeBoth();

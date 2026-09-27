@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>회절 시뮬레이션 — 논문 그림 캡처</title>
+<style>
+:root {
+  --bg: #f7f7f8; --panel-bg: #ffffff; --border: #d8d8dc;
+  --text: #1c1c1f; --muted: #6b6b72; --accent: #2f6feb;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: var(--bg); color: var(--text);
+}
+#app { display: flex; height: 100vh; }
+#stage { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px; gap: 8px; }
+#stageScroll { flex: 1; min-height: 0; overflow: auto; }
+
+/* 구도 고정 — 캔버스 컨테이너를 픽셀로 못박는다. 창 크기가 줄어도 축소되지 않고
+   #stageScroll이 스크롤될 뿐이므로, 밴드 픽셀 크기는 창과 무관하게 재현된다.
+   cssW = bandW + 134 (여백 12+12 + 그래프 96 + 간격 14), cssH = bandH1to1 + 20 */
+#canvasWrap {
+  width: 934px; height: 820px;      /* 기본 구도: 정사각(밴드 800×800) */
+  flex: none; flex-shrink: 0;
+  position: relative; background: #ffffff;
+  box-shadow: 0 0 0 1px var(--border);   /* border 대신 — 컨테이너 크기에 영향 없음 */
+}
+#canvas { display: block; width: 100%; height: 100%; background: #ffffff; }
+
+#stageInfo { font-size: 11px; color: var(--muted); line-height: 1.6;
+  font-variant-numeric: tabular-nums; }
+.warnbar { display: none; font-size: 12px; padding: 8px 10px; border-radius: 6px;
+  border: 1px solid #f3c9c4; background: #fdeaea; color: #c0392b; line-height: 1.6; }
+.warnbar.show { display: block; }
+
+/* script.js가 요구하는 index.html 패널 마크업 — 화면에서만 치운다.
+   display:none이 아니라 화면 밖으로 밀어야 값·레이아웃을 읽을 수 있다. */
+#hiddenPanel { position: absolute; left: -99999px; top: 0; width: 340px; }
+
+#panel {
+  width: 340px; flex-shrink: 0; background: var(--panel-bg);
+  border-left: 1px solid var(--border); overflow-y: auto;
+  padding: 16px; font-size: 13px;
+}
+h1 { font-size: 15px; margin: 0 0 6px; }
+.sub { font-size: 11px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+h2 { font-size: 12px; margin: 14px 0 8px; color: var(--muted);
+  border-bottom: 1px solid var(--border); padding-bottom: 4px; letter-spacing: .02em; }
+label { display: block; font-size: 12px; margin-bottom: 4px; }
+.row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.row input[type=range] { flex: 1; }
+.valbox { width: 96px; text-align: right; font-variant-numeric: tabular-nums;
+  font-size: 12px; color: var(--muted); }
+.segbtns { display: flex; gap: 6px; margin-bottom: 6px; }
+.segbtns button {
+  flex: 1; font-size: 12px; padding: 7px 6px; border: 1px solid var(--border);
+  border-radius: 6px; background: #f0f0f3; cursor: pointer;
+}
+.segbtns button:hover { background: #e4e4e8; }
+.segbtns button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.std {
+  font-size: 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: #f0f0f3; cursor: pointer;
+}
+button.std:hover { background: #e4e4e8; }
+button.std:disabled { opacity: .45; cursor: default; }
+
+.capSize { font-size: 11px; color: var(--muted); margin: -2px 0 8px;
+  font-variant-numeric: tabular-nums; }
+.capOpts { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 11px;
+  color: var(--muted); margin-bottom: 8px; }
+.capOpts label { display: flex; align-items: center; gap: 4px; margin: 0; }
+#plotPreview { display: block; width: 100%; border: 1px solid var(--border);
+  border-radius: 6px; background: #fff; margin-bottom: 4px; }
+.capBtns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.capBtns .capWide { grid-column: 1 / -1; }
+.hint { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
+
+#busy { position: fixed; inset: 0; background: rgba(255,255,255,0.82);
+  display: none; align-items: center; justify-content: center; z-index: 20; }
+#busy.show { display: flex; }
+#busyBox { background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px 22px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.10); }
+#busyBox small { display: block; color: var(--muted); font-size: 11px; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="stage">
+    <div class="warnbar" id="anisoBanner"></div>
+    <div id="stageScroll">
+      <div id="canvasWrap"><canvas id="canvas"></canvas></div>
+    </div>
+    <div id="stageInfo"></div>
+  </div>
+
+  <div id="panel">
+    <h1>논문 그림 캡처</h1>
+    <div class="sub">제목·화살표·치수선·라벨이 없는 깨끗한 PNG를 한 장씩 뽑습니다.
+      최종 배치는 직접 하세요. 더블클릭으로 열려도 그대로 동작합니다.</div>
+
+    <h2>구도 (밴드 픽셀)</h2>
+    <div class="segbtns" id="viewPresetButtons">
+      <button data-vp="sq">정사각</button>
+      <button data-vp="wide">와이드</button>
+      <button data-vp="sqtall">여유크롭</button>
+    </div>
+    <div class="capSize" id="viewPresetVal"></div>
+
+    <h2>카메라</h2>
+    <div class="segbtns" id="cameraButtons">
+      <button data-cam="1to1">1:1 관찰</button>
+      <button data-cam="3band">3분할</button>
+    </div>
+    <div class="capSize">1:1 관찰 모드가 왜곡 없는 구도입니다. 3분할은 세로가 눌립니다.</div>
+
+    <h2>파라미터</h2>
+    <div class="row">
+      <label style="width:60px">높이 H</label>
+      <input type="range" id="capH" min="20" max="300" step="1" value="150">
+      <span class="valbox" id="capHVal">150 mm</span>
+    </div>
+    <div class="row">
+      <label style="width:60px">거리 L</label>
+      <input type="range" id="capL" min="10" max="1000" step="1" value="100">
+      <span class="valbox" id="capLVal">100 mm</span>
+    </div>
+    <div class="row">
+      <label style="width:60px">파장 λ</label>
+      <input type="range" id="capLam" min="1" max="30" step="0.1" value="12">
+      <span class="valbox" id="capLamVal">12 cm</span>
+    </div>
+    <div class="capSize">슬라이더를 놓으면 다시 계산합니다(수 초~수십 초).</div>
+
+    <h2>위상</h2>
+    <div class="row">
+      <label style="width:48px">위상</label>
+      <input type="range" id="capPhase" min="0" max="359" step="1" value="0">
+      <span class="valbox" id="capPhaseVal">0°</span>
+    </div>
+    <div class="capSize">캡처는 항상 일시정지 상태에서 이 위상으로 찍습니다.</div>
+
+    <h2>해상도</h2>
+    <div class="segbtns" id="capPresetButtons">
+      <button data-p="xs">매우 작음</button>
+      <button data-p="s">작음</button>
+      <button data-p="m">보통</button>
+    </div>
+    <div class="capSize" id="capSizeVal"></div>
+
+    <h2>그래프 글자 크기</h2>
+    <div class="row">
+      <label style="width:48px">배율</label>
+      <input type="range" id="capFontScale" min="0.8" max="3.0" step="0.1" value="1.5">
+      <span class="valbox" id="capFontScaleVal">×1.5</span>
+    </div>
+    <img id="plotPreview" alt="그래프 캡처 미리보기">
+    <div class="capSize" id="plotPreviewInfo"></div>
+
+    <h2>라벨 언어</h2>
+    <div class="capOpts">
+      <label><input type="checkbox" id="capLangEn"> 영어 축 이름 (English axis labels)</label>
+    </div>
+    <div class="capSize">라이브 화면은 한국어 그대로이고, 캡처와 미리보기에만 적용됩니다.</div>
+
+    <h2>표시 요소</h2>
+    <div class="capOpts">
+      <label><input type="checkbox" id="capScreenLine" checked> 스크린 위치선</label>
+      <label><input type="checkbox" id="capCenterLine" checked> 중심 점선</label>
+      <label><input type="checkbox" id="capFrame" checked> 테두리</label>
+      <label><input type="checkbox" id="capHalfH"> ±H/2 점선</label>
+      <label><input type="checkbox" id="capShadowBand" checked> 그래프 그림자 음영</label>
+    </div>
+
+    <h2>스크린 위치선</h2>
+    <div class="segbtns" id="screenEmphButtons">
+      <button data-emph="normal">기본</button>
+      <button data-emph="strong">진하게</button>
+      <button data-emph="max">아주 진하게</button>
+    </div>
+    <div class="capSize">진하게 이상에서는 선 아래에 흰 테두리를 깔아 빨강·파랑 필드 위에서도
+      떨어져 보이게 합니다. "스크린 위치선" 체크가 꺼져 있으면 적용되지 않습니다.</div>
+
+    <h2>저장</h2>
+    <div class="capBtns">
+      <button class="std" id="capIncBtn">① 입사파</button>
+      <button class="std" id="capScBtn">② 산란파</button>
+      <button class="std" id="capTotalBtn">③ 중첩</button>
+      <button class="std" id="capPlotBtn">스크린 세기 그래프</button>
+      <button class="std capWide" id="capAllBtn">①②③ 모두 저장</button>
+    </div>
+    <div class="hint">
+      캡처 이미지에는 제목·화살표·치수선·라벨이 들어가지 않습니다.
+      파일명에 H·L·λ·위상·폭·구도가 그대로 박히므로 나중에 어떤 조건의 그림인지
+      추적할 수 있습니다. 세로 비율은 위에서 고른 <b>구도</b>가 정합니다.
+    </div>
+  </div>
+</div>
+
+<!-- ===================================================================
+     script.js가 요구하는 조작 패널 — index.html의 #panel 마크업을 그대로
+     복사한 것이다. 화면 밖으로 밀어 두기만 하고 구조는 건드리지 않는다.
+     (index.html을 고칠 때 여기도 같이 맞춰야 한다 — tests/dom-contract.js가 검사)
+     =================================================================== -->
+<div id="hiddenPanel" aria-hidden="true">
+    <h1>도선 막대 회절</h1>
+    <div class="sub">x=0에 도선 N개를 세로로 쌓아 도선 막대(장애물)를 만들고,
+      왼→오른 평면파의 회절을 봅니다. 굵기 2a가 간격 d 이상이면 도선이 닿아
+      솔리드 막대가 됩니다. 전기장(도선과 평행 성분) 한 가지만 그립니다.</div>
+
+    <h2>장애물 설정</h2>
+    <div class="segbtns" id="modeButtons">
+      <button id="modeWireBtn" class="active">도선 배열 모드</button>
+      <button id="modeSolidBtn">솔리드 막대 모드</button>
+    </div>
+    <div id="wireControls">
+      <div class="row">
+        <label style="width:60px">개수 N</label>
+        <input type="range" id="nSlider" min="2" max="120" step="1" value="40">
+        <span class="valbox" id="nVal"></span>
+      </div>
+      <div class="row">
+        <label style="width:60px">간격 d</label>
+        <input type="range" id="dSlider" min="0.5" max="20" step="0.1" value="4">
+        <span class="valbox" id="dVal"></span>
+      </div>
+      <div class="row">
+        <label style="width:60px">굵기 a</label>
+        <input type="range" id="aSlider" min="0.05" max="6" step="0.05" value="1">
+        <span class="valbox" id="aVal"></span>
+      </div>
+    </div>
+    <div id="solidControls" style="display:none">
+      <div class="row">
+        <label style="width:60px">장애물 높이 H</label>
+        <input type="range" id="hSlider" min="20" max="300" step="1" value="150">
+        <span class="valbox" id="hVal"></span>
+      </div>
+    </div>
+
+    <h2>파동 설정</h2>
+    <div class="row">
+      <label style="width:48px">파장 λ</label>
+      <input type="range" id="lamSlider" min="1" max="30" step="0.1" value="12">
+      <span class="valbox" id="lamVal"></span>
+    </div>
+    <div class="row">
+      <label style="width:48px">진폭 A</label>
+      <input type="range" id="ampSlider" min="0" max="2" step="0.05" value="1">
+      <span class="valbox" id="ampVal"></span>
+    </div>
+    <div class="row">
+      <label style="width:60px">스크린 거리 L</label>
+      <input type="range" id="lSlider" min="10" max="1000" step="1" value="100">
+      <span class="valbox" id="lVal"></span>
+    </div>
+
+    <h2>화면 보기 (줌)</h2>
+    <div class="segbtns" id="viewModeButtons">
+      <button id="viewMode3bandBtn" class="active">3분할 뷰</button>
+      <button id="viewMode1to1Btn">1:1 관찰 모드</button>
+    </div>
+    <div class="segbtns" id="viewFieldButtons" style="display:none">
+      <button id="viewFieldIncBtn">① 입사</button>
+      <button id="viewFieldScBtn">② 산란</button>
+      <button id="viewFieldTotalBtn" class="active">③ 중첩</button>
+    </div>
+    <div class="zoomRow">
+      <button class="zoomBtn" id="zoomOutBtn">−</button>
+      <span class="zoomPct" id="zoomPctVal">100%</span>
+      <button class="zoomBtn" id="zoomInBtn">+</button>
+    </div>
+    <button class="zoomResetBtn" id="zoomResetBtn">⤾ 기본 보기</button>
+
+    <h2>애니메이션</h2>
+    <div class="ctrlrow">
+      <button class="std" id="playBtn">‖ 일시정지</button>
+    </div>
+    <div class="row" id="phaseWrap">
+      <label style="width:48px">위상</label>
+      <input type="range" id="phaseSlider" min="0" max="360" step="1" value="0">
+      <span class="valbox" id="phaseVal">0°</span>
+    </div>
+    <div class="hint" id="phaseHint" style="display:none"></div>
+
+    <h2>현재 상태</h2>
+    <div class="info" id="infoBox"></div>
+</div>
+
+<div id="busy"><div id="busyBox"><span id="busyMsg">계산 중…</span><small id="busySub"></small></div></div>
+
+<script src="script.js"></script>
+<script src="capture.js"></script>
+</body>
+</html>
